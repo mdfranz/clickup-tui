@@ -20,12 +20,13 @@ import (
 var (
 	showAll  bool
 	detailed bool
+	mine     bool
 )
 
 var tasksCmd = &cobra.Command{
 	Use:   "tasks",
 	Short: "Show tasks in configured folders",
-	Long:  `Display tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Show all open tasks (includes backlog and scoping)\n  --detailed, -d: Show the last 3 comments for each task`,
+	Long:  `Display tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Show all open tasks (includes backlog and scoping)\n  --detailed, -d: Show the last 3 comments for each task\n  --mine: Only show tasks assigned to you (default true)`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.LoadConfig()
 		if err != nil {
@@ -62,9 +63,12 @@ var tasksCmd = &cobra.Command{
 			width = 80
 		}
 
-		title := "Active Tasks (In Progress/In Review)"
+		title := "Active Tasks"
 		if showAll {
 			title = "All Open Tasks"
+		}
+		if mine {
+			title += " (Mine)"
 		}
 		fmt.Println(ui.HeaderStyle.Render(fmt.Sprintf("%s for Space: %s", title, cfg.SpaceName)))
 
@@ -93,7 +97,7 @@ var tasksCmd = &cobra.Command{
 				if len(tasks) > 0 {
 					var filteredTasks []clickup.Task
 					for _, task := range tasks {
-						if filter.ShouldIncludeTask(task, showAll) {
+						if filter.ShouldIncludeTask(task, currentUser.ID.String(), showAll, mine) {
 							filteredTasks = append(filteredTasks, task)
 						}
 					}
@@ -198,5 +202,6 @@ var tasksCmd = &cobra.Command{
 func init() {
 	tasksCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all open tasks (including backlog and scoping)")
 	tasksCmd.Flags().BoolVarP(&detailed, "detailed", "d", false, "Show the last 3 comments for each task")
+	tasksCmd.Flags().BoolVar(&mine, "mine", true, "Only show tasks assigned to you")
 	rootCmd.AddCommand(tasksCmd)
 }

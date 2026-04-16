@@ -20,12 +20,15 @@ import (
 
 type browseTasksMsg []taskItem
 
-var browseAll bool
+var (
+	browseAll  bool
+	browseMine bool
+)
 
 var browseCmd = &cobra.Command{
 	Use:   "browse",
 	Short: "Browse tasks in an interactive TUI",
-	Long:  `Interactively browse tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Browse all open tasks (includes backlog and scoping)`,
+	Long:  `Interactively browse tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Browse all open tasks (includes backlog and scoping)\n  --mine: Only browse tasks assigned to you (default true)`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.LoadConfig()
 		if err != nil {
@@ -45,7 +48,13 @@ var browseCmd = &cobra.Command{
 
 		client := clickup.NewClient(pat)
 
-		m := initialBrowseModel(client, cfg, browseAll)
+		currentUser, err := client.GetUser()
+		if err != nil {
+			fmt.Printf("Error getting current user: %v\n", err)
+			os.Exit(1)
+		}
+
+		m := initialBrowseModel(client, cfg, currentUser.ID.String(), browseAll, browseMine)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 
 		if _, err := p.Run(); err != nil {
@@ -85,7 +94,9 @@ const (
 type browseModel struct {
 	client       *clickup.Client
 	cfg          config.Config
+	userID       string
 	all          bool
+	mine         bool
 	list         list.Model
 	viewport     viewport.Model
 	state        browseState
@@ -97,18 +108,23 @@ type browseModel struct {
 	height       int
 }
 
-func initialBrowseModel(client *clickup.Client, cfg config.Config, all bool) browseModel {
+func initialBrowseModel(client *clickup.Client, cfg config.Config, userID string, all bool, mine bool) browseModel {
 	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
-	title := "Active Tasks (In Progress/In Review)"
+	title := "Active Tasks"
 	if all {
 		title = "All Open Tasks"
+	}
+	if mine {
+		title += " (Mine)"
 	}
 	l.Title = title
 
 	return browseModel{
 		client: client,
 		cfg:    cfg,
+		userID: userID,
 		all:    all,
+		mine:   mine,
 		list:   l,
 		state:  stateList,
 	}
@@ -130,7 +146,7 @@ func (m browseModel) Init() tea.Cmd {
 					continue
 				}
 				for _, task := range tasks {
-					if filter.ShouldIncludeTask(task, m.all) {
+					if filter.ShouldIncludeTask(task, m.userID, m.all, m.mine) {
 						allItems = append(allItems, taskItem{task: task, folderName: folder.Name, listName: listObj.Name})
 					}
 				}
@@ -184,6 +200,9 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		title := "Active Tasks"
 		if m.all {
 			title = "All Open Tasks"
+		}
+		if m.mine {
+			title += " (Mine)"
 		}
 		m.list.Title = fmt.Sprintf("%s (%d)", title, len(items))
 
@@ -277,5 +296,6 @@ func (m browseModel) View() string {
 
 func init() {
 	browseCmd.Flags().BoolVarP(&browseAll, "all", "a", false, "Browse all open tasks (including backlog and scoping)")
+	browseCmd.Flags().BoolVar(&browseMine, "mine", true, "Only browse tasks assigned to you")
 	rootCmd.AddCommand(browseCmd)
 }
