@@ -24,13 +24,18 @@ var (
 	detailed  bool
 	summarize bool
 	mine      bool
+	team      bool
 )
 
 var tasksCmd = &cobra.Command{
 	Use:   "tasks",
 	Short: "Show tasks in configured folders",
-	Long:  `Display tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Show all open tasks (includes backlog and scoping)\n  --detailed, -d: Show the last 3 comments for each task\n  --summarize, -s: Generate an AI summary of each task\n  --mine: Only show tasks assigned to you (default true)`,
+	Long:  `Display tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Show all open tasks (includes backlog and scoping)\n  --detailed, -d: Show the last 3 comments for each task\n  --summarize, -s: Generate an AI summary of each task\n  --team: Show tasks for the entire team (overrides --mine)\n  --mine: Only show tasks assigned to you (default true)`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if team {
+			mine = false
+		}
+
 		cfg, err := config.LoadConfig()
 		if err != nil {
 			if config.IsNotExist(err) {
@@ -234,6 +239,7 @@ func init() {
 	tasksCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all open tasks (including backlog and scoping)")
 	tasksCmd.Flags().BoolVarP(&detailed, "detailed", "d", false, "Show the last 3 comments for each task")
 	tasksCmd.Flags().BoolVarP(&summarize, "summarize", "s", false, "Generate an AI summary of each task")
+	tasksCmd.Flags().BoolVar(&team, "team", false, "Show tasks for the whole team")
 	tasksCmd.Flags().BoolVar(&mine, "mine", true, "Only show tasks assigned to you")
 	rootCmd.AddCommand(tasksCmd)
 }
