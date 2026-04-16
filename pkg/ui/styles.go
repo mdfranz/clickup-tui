@@ -61,6 +61,11 @@ var (
 		Italic(true).
 		Foreground(lipgloss.Color("242"))
 
+	SummaryStyle = lipgloss.NewStyle().
+		Italic(true).
+		Foreground(lipgloss.Color(ColorBlue)).
+		PaddingLeft(2)
+
 	NoTasksStyle = lipgloss.NewStyle().
 		Italic(true).
 		Foreground(lipgloss.Color(ColorDarkGray)).
