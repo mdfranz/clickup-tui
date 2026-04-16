@@ -12,11 +12,12 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
-	activeOnly bool
-	detailed   bool
+	showAll  bool
+	detailed bool
 
 	// Styles
 	headerStyle = lipgloss.NewStyle().
@@ -52,10 +53,9 @@ var (
 	dateStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245"))
 
-	commentStyle = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(lipgloss.Color("242")).
-			PaddingLeft(22)
+	commentBaseStyle = lipgloss.NewStyle().
+				Italic(true).
+				Foreground(lipgloss.Color("242"))
 
 	noTasksStyle = lipgloss.NewStyle().
 			Italic(true).
@@ -65,7 +65,7 @@ var (
 
 var tasksCmd = &cobra.Command{
 	Use:   "tasks",
-	Short: "Show all open tasks in configured folders",
+	Short: "Show tasks in configured folders",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.LoadConfig()
 		if err != nil {
@@ -96,9 +96,15 @@ var tasksCmd = &cobra.Command{
 			return
 		}
 
-		title := "Open Tasks"
-		if activeOnly {
-			title = "Active Tasks (In Progress/In Review)"
+		// Get terminal width
+		width, _, _ := term.GetSize(int(os.Stdout.Fd()))
+		if width <= 0 {
+			width = 80
+		}
+
+		title := "Active Tasks (In Progress/In Review)"
+		if showAll {
+			title = "All Open Tasks"
 		}
 		fmt.Println(headerStyle.Render(fmt.Sprintf("%s for Space: %s", title, cfg.SpaceName)))
 
@@ -129,12 +135,12 @@ var tasksCmd = &cobra.Command{
 					for _, task := range tasks {
 						status := strings.ToLower(task.Status.Status)
 
-						if activeOnly {
-							if status == "in progress" || status == "in review" {
+						if showAll {
+							if status != "completed" && status != "closed" {
 								filteredTasks = append(filteredTasks, task)
 							}
 						} else {
-							if status != "completed" && status != "closed" {
+							if status == "in progress" || status == "in review" {
 								filteredTasks = append(filteredTasks, task)
 							}
 						}
@@ -204,15 +210,40 @@ var tasksCmd = &cobra.Command{
 												commentDate = t.Format("01/02")
 											}
 										}
-										text := strings.ReplaceAll(comment.CommentText, "\n", " ")
-										if len(text) > 80 {
-											text = text[:77] + "..."
-										}
+										
 										prefix := "├"
 										if i == limit-1 {
 											prefix = "└"
 										}
-										fmt.Println(commentStyle.Render(fmt.Sprintf("%s %s %s: %s", prefix, dateStyle.Render(commentDate), comment.User.Username, text)))
+										
+										// Base indentation for the comment block
+										blockIndent := 22
+										headerText := fmt.Sprintf("%s %s %s: ", prefix, dateStyle.Render(commentDate), comment.User.Username)
+										// Header width without colors
+										headerWidth := lipgloss.Width(headerText)
+										
+										contentWidth := width - blockIndent - headerWidth
+										if contentWidth < 20 {
+											contentWidth = 20
+										}
+
+										commentText := strings.TrimSpace(comment.CommentText)
+										
+										// Use lipgloss to wrap the text
+										wrapped := lipgloss.NewStyle().Width(contentWidth).Render(commentText)
+										lines := strings.Split(wrapped, "\n")
+										
+										// Render first line with header
+										fmt.Printf("%s%s%s\n", strings.Repeat(" ", blockIndent), commentBaseStyle.Render(headerText), commentBaseStyle.Render(lines[0]))
+										
+										// Render subsequent lines with indentation
+										indent := strings.Repeat(" ", blockIndent+headerWidth)
+										for j := 1; j < len(lines); j++ {
+											line := strings.TrimSpace(lines[j])
+											if line != "" {
+												fmt.Printf("%s%s\n", indent, commentBaseStyle.Render(line))
+											}
+										}
 									}
 								}
 							}
@@ -222,9 +253,9 @@ var tasksCmd = &cobra.Command{
 			}
 
 			if !foundTasks {
-				msg := "No open tasks found."
-				if activeOnly {
-					msg = "No active tasks found."
+				msg := "No active tasks found."
+				if showAll {
+					msg = "No open tasks found."
 				}
 				fmt.Println(noTasksStyle.Render(msg))
 			}
@@ -233,7 +264,7 @@ var tasksCmd = &cobra.Command{
 }
 
 func init() {
-	tasksCmd.Flags().BoolVarP(&activeOnly, "active", "a", false, "Only show 'in progress' and 'in review' tasks")
+	tasksCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all open tasks (including backlog and scoping)")
 	tasksCmd.Flags().BoolVarP(&detailed, "detailed", "d", false, "Show the last 3 comments for each task")
 	rootCmd.AddCommand(tasksCmd)
 }
