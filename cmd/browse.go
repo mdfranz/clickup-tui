@@ -13,6 +13,7 @@ import (
 	"clickup-tui/pkg/util"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -89,7 +90,10 @@ type browseState int
 const (
 	stateList browseState = iota
 	stateDetail
+	stateComment
 )
+
+type commentPostedMsg struct{}
 
 type browseModel struct {
 	client       *clickup.Client
@@ -99,10 +103,12 @@ type browseModel struct {
 	mine         bool
 	list         list.Model
 	viewport     viewport.Model
+	textarea     textarea.Model
 	state        browseState
 	selectedTask *taskItem
 	comments     []clickup.Comment
 	loading      bool
+	posting      bool
 	err          error
 	width        int
 	height       int
@@ -162,6 +168,33 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// In comment mode, only handle ctrl+c (quit), esc (cancel), and ctrl+s (submit)
+		if m.state == stateComment {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.state = stateDetail
+				return m, nil
+			case "ctrl+s":
+				text := strings.TrimSpace(m.textarea.Value())
+				if text == "" {
+					return m, nil
+				}
+				m.posting = true
+				taskID := m.selectedTask.task.ID
+				return m, func() tea.Msg {
+					if err := m.client.CreateTaskComment(taskID, text); err != nil {
+						return errMsg(err)
+					}
+					return commentPostedMsg{}
+				}
+			}
+			// Let textarea handle all other keys
+			m.textarea, cmd = m.textarea.Update(msg)
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.state == stateDetail {
@@ -184,11 +217,35 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+		case "c":
+			if m.state == stateDetail && m.selectedTask != nil {
+				ta := textarea.New()
+				ta.Placeholder = "Type your comment..."
+				ta.Focus()
+				ta.SetWidth(m.width - 10)
+				ta.SetHeight(6)
+				m.textarea = ta
+				m.state = stateComment
+				return m, textarea.Blink
+			}
 		case "esc":
 			if m.state == stateDetail {
 				m.state = stateList
 				return m, nil
 			}
+		}
+
+	case commentPostedMsg:
+		m.posting = false
+		m.state = stateDetail
+		m.loading = true
+		taskID := m.selectedTask.task.ID
+		return m, func() tea.Msg {
+			comments, err := m.client.GetTaskComments(taskID)
+			if err != nil {
+				return errMsg(err)
+			}
+			return commentsMsg(comments)
 		}
 
 	case browseTasksMsg:
@@ -280,13 +337,24 @@ func (m browseModel) renderDetail() string {
 		}
 	}
 
-	b.WriteString("\n\n(Press Esc or q to go back)")
+	b.WriteString("\n\n(c: add comment | Esc/q: go back)")
 	return b.String()
 }
 
 func (m browseModel) View() string {
 	if m.err != nil {
 		return fmt.Sprintf("\nError: %v\n", m.err)
+	}
+	if m.state == stateComment {
+		var b strings.Builder
+		b.WriteString(ui.HeaderStyle.Render("Add Comment: "+m.selectedTask.task.Name) + "\n\n")
+		if m.posting {
+			b.WriteString("Posting comment...")
+		} else {
+			b.WriteString(m.textarea.View())
+			b.WriteString("\n\n(Ctrl+S: submit | Esc: cancel)")
+		}
+		return ui.DocStyle.Render(b.String())
 	}
 	if m.state == stateDetail {
 		return ui.DocStyle.Render(m.viewport.View())

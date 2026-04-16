@@ -1,6 +1,7 @@
 package clickup
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,9 +38,16 @@ type FoldersResponse struct {
 	Folders []Folder `json:"folders"`
 }
 
+type Status struct {
+	Status string `json:"status"`
+	Color  string `json:"color"`
+	Type   string `json:"type"`
+}
+
 type List struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Statuses []Status `json:"statuses"`
 }
 
 type ListsResponse struct {
@@ -101,12 +109,19 @@ func NewClient(pat string) *Client {
 // It creates a request, adds authorization, executes it, checks the status,
 // reads the body, and unmarshals the JSON response into the target.
 func (c *Client) doRequest(method, url string, target interface{}) error {
-	req, err := http.NewRequest(method, url, nil)
+	return c.doRequestWithBody(method, url, nil, target)
+}
+
+func (c *Client) doRequestWithBody(method, url string, body io.Reader, target interface{}) error {
+	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		return err
 	}
 
 	req.Header.Add("Authorization", c.PAT)
+	if body != nil {
+		req.Header.Add("Content-Type", "application/json")
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -118,12 +133,12 @@ func (c *Client) doRequest(method, url string, target interface{}) error {
 		return fmt.Errorf("API error: status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 
-	if err := json.Unmarshal(body, target); err != nil {
+	if err := json.Unmarshal(respBody, target); err != nil {
 		return err
 	}
 
@@ -200,4 +215,35 @@ func (c *Client) GetTaskComments(taskID string) ([]Comment, error) {
 		return nil, err
 	}
 	return commentsResp.Comments, nil
+}
+
+func (c *Client) UpdateTaskStatus(taskID string, status string) error {
+	url := fmt.Sprintf("%stask/%s", APIURL, taskID)
+	payload, err := json.Marshal(map[string]interface{}{
+		"status": status,
+	})
+	if err != nil {
+		return err
+	}
+	var result map[string]interface{}
+	return c.doRequestWithBody("PUT", url, bytes.NewReader(payload), &result)
+}
+
+func (c *Client) GetList(listID string) (List, error) {
+	url := fmt.Sprintf("%slist/%s", APIURL, listID)
+	var list List
+	if err := c.doRequest("GET", url, &list); err != nil {
+		return List{}, err
+	}
+	return list, nil
+}
+
+func (c *Client) CreateTaskComment(taskID string, commentText string) error {
+	url := fmt.Sprintf("%stask/%s/comment", APIURL, taskID)
+	payload, err := json.Marshal(map[string]string{"comment_text": commentText})
+	if err != nil {
+		return err
+	}
+	var result map[string]interface{}
+	return c.doRequestWithBody("POST", url, bytes.NewReader(payload), &result)
 }
