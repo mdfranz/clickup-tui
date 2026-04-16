@@ -38,11 +38,13 @@ var menuCmd = &cobra.Command{
 			found := false
 			for _, sub := range root.Commands() {
 				if sub.Name() == finalModel.choice {
+					os.Setenv("CLICKUP_TUI_MENU", "1")
 					root.SetArgs([]string{finalModel.choice})
 					if err := root.Execute(); err != nil {
 						fmt.Printf("Error executing %s: %v\n", finalModel.choice, err)
 						os.Exit(1)
 					}
+					os.Unsetenv("CLICKUP_TUI_MENU")
 					found = true
 					break
 				}

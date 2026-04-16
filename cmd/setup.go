@@ -29,7 +29,12 @@ var setupCmd = &cobra.Command{
 		client := clickup.NewClient(pat)
 
 		m := initialModel(client)
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		
+		var opts []tea.ProgramOption
+		if os.Getenv("CLICKUP_TUI_MENU") == "1" {
+			opts = append(opts, tea.WithAltScreen())
+		}
+		p := tea.NewProgram(m, opts...)
 
 		finalModel, err := p.Run()
 		if err != nil {

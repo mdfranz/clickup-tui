@@ -59,7 +59,12 @@ var browseCmd = &cobra.Command{
 		}
 
 		m := initialBrowseModel(client, cfg, currentUser.ID.String(), browseAll, browseMine)
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		
+		var opts []tea.ProgramOption
+		if os.Getenv("CLICKUP_TUI_MENU") == "1" {
+			opts = append(opts, tea.WithAltScreen())
+		}
+		p := tea.NewProgram(m, opts...)
 
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)

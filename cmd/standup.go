@@ -56,11 +56,22 @@ var standupCmd = &cobra.Command{
 		}
 
 		m := initialStandupModel(client, cfg, currentUser.ID.String(), standupAll, standupMine)
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		
+		var opts []tea.ProgramOption
+		if os.Getenv("CLICKUP_TUI_MENU") == "1" {
+			opts = append(opts, tea.WithAltScreen())
+		}
+		p := tea.NewProgram(m, opts...)
 
-		if _, err := p.Run(); err != nil {
+		finalModel, err := p.Run()
+		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
+		}
+		
+		finalStandupModel := finalModel.(standupModel)
+		if os.Getenv("CLICKUP_TUI_MENU") != "1" && finalStandupModel.state == standupDone {
+			fmt.Println(finalStandupModel.viewDoneContent())
 		}
 	},
 }
@@ -98,6 +109,7 @@ type standupModel struct {
 	width    int
 	height   int
 	err      error
+	quitting bool
 
 	// Per-task update state
 	updateIdx    int              // index into selected tasks
@@ -210,6 +222,10 @@ func (m standupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateIdx++
 		if m.updateIdx >= len(m.selected) {
 			m.state = standupDone
+			if os.Getenv("CLICKUP_TUI_MENU") != "1" {
+				m.quitting = true
+				return m, tea.Quit
+			}
 			return m, nil
 		}
 		return m, m.initTaskUpdate()
@@ -373,6 +389,10 @@ func (m standupModel) submitUpdate() (tea.Model, tea.Cmd) {
 		m.updateIdx++
 		if m.updateIdx >= len(m.selected) {
 			m.state = standupDone
+			if os.Getenv("CLICKUP_TUI_MENU") != "1" {
+				m.quitting = true
+				return m, tea.Quit
+			}
 			return m, nil
 		}
 		return m, m.initTaskUpdate()
@@ -409,6 +429,10 @@ func (m standupModel) View() string {
 	if m.err != nil {
 		return ui.DocStyle.Render(fmt.Sprintf("Error: %v\n\nPress ctrl+c to quit.", m.err))
 	}
+	
+	if m.quitting {
+		return ""
+	}
 
 	switch m.state {
 	case standupLoading:
@@ -431,6 +455,38 @@ func (m standupModel) View() string {
 	}
 
 	return ""
+}
+
+func (m standupModel) viewDoneContent() string {
+	var b strings.Builder
+
+	b.WriteString(ui.HeaderStyle.Render("Standup Complete") + "\n\n")
+
+	if len(m.posted) == 0 {
+		if len(m.tasks) == 0 {
+			b.WriteString("No tasks found.\n")
+		} else {
+			b.WriteString("No updates posted.\n")
+		}
+	} else {
+		for _, r := range m.posted {
+			b.WriteString(fmt.Sprintf("  %s\n", lipgloss.NewStyle().Bold(true).Render(r.taskName)))
+			if r.commented {
+				b.WriteString("    + comment added\n")
+			}
+			if r.newStatus != "" {
+				b.WriteString(fmt.Sprintf("    + status: %s → %s\n", r.oldStatus, r.newStatus))
+			}
+			b.WriteString("\n")
+		}
+	}
+	
+	return b.String()
+}
+
+func (m standupModel) viewDone() string {
+	content := m.viewDoneContent()
+	return fmt.Sprintf("%s(Press q or esc to quit)", content)
 }
 
 func (m standupModel) viewSelect() string {
@@ -607,34 +663,6 @@ func (m standupModel) viewStatusPicker() string {
 	}
 
 	b.WriteString("\n(enter: select | esc: cancel)")
-	return b.String()
-}
-
-func (m standupModel) viewDone() string {
-	var b strings.Builder
-
-	b.WriteString(ui.HeaderStyle.Render("Standup Complete") + "\n\n")
-
-	if len(m.posted) == 0 {
-		if len(m.tasks) == 0 {
-			b.WriteString("No tasks found.\n")
-		} else {
-			b.WriteString("No updates posted.\n")
-		}
-	} else {
-		for _, r := range m.posted {
-			b.WriteString(fmt.Sprintf("  %s\n", lipgloss.NewStyle().Bold(true).Render(r.taskName)))
-			if r.commented {
-				b.WriteString("    + comment added\n")
-			}
-			if r.newStatus != "" {
-				b.WriteString(fmt.Sprintf("    + status: %s → %s\n", r.oldStatus, r.newStatus))
-			}
-			b.WriteString("\n")
-		}
-	}
-
-	b.WriteString("(Press q or esc to quit)")
 	return b.String()
 }
 

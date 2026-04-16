@@ -17,7 +17,10 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -62,11 +65,24 @@ var trackCmd = &cobra.Command{
 		}
 
 		m := initialTrackModel(client, cfg, summarizer, userID)
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		
+		var opts []tea.ProgramOption
+		if os.Getenv("CLICKUP_TUI_MENU") == "1" {
+			opts = append(opts, tea.WithAltScreen())
+			opts = append(opts, tea.WithMouseCellMotion())
+		}
+		
+		p := tea.NewProgram(m, opts...)
 
-		if _, err := p.Run(); err != nil {
+		finalModel, err := p.Run()
+		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
+		}
+		
+		finalTrackModel := finalModel.(trackModel)
+		if os.Getenv("CLICKUP_TUI_MENU") != "1" && finalTrackModel.step == trackStepDisplay {
+			fmt.Println(finalTrackModel.generateDisplayContent())
 		}
 	},
 }
@@ -88,9 +104,12 @@ type trackModel struct {
 	step       trackStep
 	userList   list.Model
 	activities []clickup.Activity
-	summaries  []string // formatted strings with daily summaries
+	summaries  []string
 	loading    bool
 	spinner    spinner.Model
+	viewport   viewport.Model
+	ready      bool
+	quitting   bool
 	err        error
 	width      int
 	height     int
@@ -278,20 +297,97 @@ func (m trackModel) loadActivity(userID string) tea.Cmd {
 	}
 }
 
+func (m trackModel) generateDisplayContent() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	
+	var b strings.Builder
+	title := "Activity for the last 10 days"
+	if m.user != nil {
+		title = fmt.Sprintf("Activity for last 10 days for (%s: %s)", m.user.Username, m.user.ID.String())
+	}
+	b.WriteString(ui.HeaderStyle.Render(title) + "\n\n")
+	
+	if len(m.summaries) > 0 {
+		b.WriteString(ui.HeaderStyle.Render("AI Daily Summary"))
+		b.WriteString("\n\n")
+		
+		// Render Markdown using glamour
+		r, _ := glamour.NewTermRenderer(
+			glamour.WithStandardStyle("dark"),
+			glamour.WithWordWrap(width-10),
+		)
+
+		for _, s := range m.summaries {
+			out, err := r.Render(s)
+			if err != nil {
+				b.WriteString(s) // Fallback
+			} else {
+				b.WriteString(strings.TrimSpace(out))
+			}
+			b.WriteString("\n\n")
+		}
+		b.WriteString(ui.HeaderStyle.Render("Raw Activity Log"))
+		b.WriteString("\n\n")
+	}
+
+	if len(m.activities) == 0 {
+		b.WriteString("No activity found in the last 10 days.")
+	} else {
+		// Activity wrap style
+		activityWrapStyle := lipgloss.NewStyle().Width(width - 6)
+		
+		for _, a := range m.activities {
+			date := format.FormatCommentDate(a.Date)
+			activityLine := fmt.Sprintf("%s %s: %s", ui.DateStyle.Render(date), ui.AssigneeStyle.Render(a.User.Username), a.Type)
+			if a.Source != "" {
+				activityLine += fmt.Sprintf(" (%s)", a.Source)
+			}
+			b.WriteString(activityWrapStyle.Render(activityLine))
+			b.WriteString("\n")
+		}
+	}
+	
+	return b.String()
+}
+
 func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		
+		headerHeight := 3 // for the "(q: quit | esc: back to users)" + margins
+		
+		if !m.ready {
+			m.viewport = viewport.New(msg.Width, msg.Height-headerHeight)
+			m.ready = true
+		} else {
+			m.viewport.Width = msg.Width
+			m.viewport.Height = msg.Height - headerHeight
+		}
+
 		h, v := ui.DocStyle.GetFrameSize()
 		m.userList.SetSize(msg.Width-h, msg.Height-v)
+		
+		if m.step == trackStepDisplay {
+			m.viewport.SetContent(ui.DocStyle.Width(m.width).Render(m.generateDisplayContent()))
+		}
+		
 		return m, nil
 
 	case spinner.TickMsg:
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		if m.step == trackStepLoading {
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
 
 	case trackUsersMsg:
 		items := make([]list.Item, len(msg))
@@ -307,6 +403,16 @@ func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.summaries = msg.summaries
 		m.step = trackStepDisplay
 		m.loading = false
+		
+		if os.Getenv("CLICKUP_TUI_MENU") != "1" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		
+		if m.ready {
+			m.viewport.SetContent(ui.DocStyle.Width(m.width).Render(m.generateDisplayContent()))
+			m.viewport.GotoTop()
+		}
 		return m, nil
 
 	case errMsg:
@@ -325,7 +431,7 @@ func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.userID = it.user.ID.String()
 					m.step = trackStepLoading
 					m.loading = true
-					return m, m.loadActivity(m.userID)
+					return m, tea.Batch(m.spinner.Tick, m.loadActivity(m.userID))
 				}
 			}
 		case trackStepDisplay:
@@ -338,15 +444,22 @@ func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.step == trackStepUserSelect {
 		m.userList, cmd = m.userList.Update(msg)
-		return m, cmd
+		cmds = append(cmds, cmd)
+	} else if m.step == trackStepDisplay {
+		m.viewport, cmd = m.viewport.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 func (m trackModel) View() string {
 	if m.err != nil {
 		return ui.DocStyle.Render(fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err))
+	}
+	
+	if m.quitting {
+		return ""
 	}
 
 	switch m.step {
@@ -355,39 +468,11 @@ func (m trackModel) View() string {
 	case trackStepLoading:
 		return ui.DocStyle.Render(ui.SpinnerView("Loading activity...", m.spinner))
 	case trackStepDisplay:
-		var b strings.Builder
-		title := "Activity for the last 10 days"
-		if m.user != nil {
-			title = fmt.Sprintf("Activity for last 10 days for (%s: %s)", m.user.Username, m.user.ID.String())
+		if !m.ready {
+			return "\n  Initializing..."
 		}
-		b.WriteString(ui.HeaderStyle.Render(title) + "\n\n")
-		
-		if len(m.summaries) > 0 {
-			b.WriteString(ui.HeaderStyle.Render("AI Daily Summary"))
-			b.WriteString("\n\n")
-			for _, s := range m.summaries {
-				b.WriteString(s)
-				b.WriteString("\n")
-			}
-			b.WriteString(ui.HeaderStyle.Render("Raw Activity Log"))
-			b.WriteString("\n\n")
-		}
-
-		if len(m.activities) == 0 {
-			b.WriteString("No activity found in the last 10 days.")
-		} else {
-			for _, a := range m.activities {
-				date := format.FormatCommentDate(a.Date)
-				b.WriteString(fmt.Sprintf("%s %s: %s", ui.DateStyle.Render(date), ui.AssigneeStyle.Render(a.User.Username), a.Type))
-				if a.Source != "" {
-					b.WriteString(fmt.Sprintf(" (%s)", a.Source))
-				}
-				b.WriteString("\n")
-			}
-		}
-		
-		b.WriteString("\n\n(q: quit | esc: back to users)")
-		return ui.DocStyle.Render(b.String())
+		footer := "\n\n(q: quit | esc: back to users | ↑/↓: scroll)"
+		return fmt.Sprintf("%s%s", m.viewport.View(), footer)
 	}
 	return ""
 }

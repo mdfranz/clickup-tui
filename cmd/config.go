@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	"clickup-tui/pkg/clickup"
 	"clickup-tui/pkg/config"
+	"clickup-tui/pkg/util"
 
 	"github.com/spf13/cobra"
 )
@@ -29,6 +31,17 @@ var showCmd = &cobra.Command{
 		fmt.Printf("  Folders:\n")
 		for _, f := range cfg.Folders {
 			fmt.Printf("    - %s (%s)\n", f.Name, f.ID)
+		}
+
+		pat, err := util.GetClickUpPAT()
+		if err == nil {
+			client := clickup.NewClient(pat)
+			user, err := client.GetUser()
+			if err == nil {
+				fmt.Printf("\nUser Details:\n")
+				fmt.Printf("  Name:    %s\n", user.Username)
+				fmt.Printf("  User ID: %d\n", user.ID)
+			}
 		}
 	},
 }

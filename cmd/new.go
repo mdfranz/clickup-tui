@@ -52,11 +52,22 @@ var newCmd = &cobra.Command{
 		}
 
 		m := initialNewModel(client, cfg, currentUser)
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		
+		var opts []tea.ProgramOption
+		if os.Getenv("CLICKUP_TUI_MENU") == "1" {
+			opts = append(opts, tea.WithAltScreen())
+		}
+		p := tea.NewProgram(m, opts...)
 
-		if _, err := p.Run(); err != nil {
+		finalModel, err := p.Run()
+		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
+		}
+		
+		finalNewModel := finalModel.(newModel)
+		if os.Getenv("CLICKUP_TUI_MENU") != "1" && finalNewModel.step == stepNewDone {
+			fmt.Println(finalNewModel.viewDoneContent())
 		}
 	},
 }
@@ -131,6 +142,7 @@ type newModel struct {
 	spinner          spinner.Model
 	createdTask      *clickup.Task
 	err              error
+	quitting         bool
 	width            int
 	height           int
 }
@@ -281,6 +293,10 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.createdTask = &task
 		m.step = stepNewDone
 		m.loading = false
+		if os.Getenv("CLICKUP_TUI_MENU") != "1" {
+			m.quitting = true
+			return m, tea.Quit
+		}
 		return m, nil
 
 	case errMsg:
@@ -465,6 +481,10 @@ func (m newModel) View() string {
 	if m.err != nil {
 		return ui.DocStyle.Render(fmt.Sprintf("Error: %v\n\nPress esc to go back or ctrl+c to quit.", m.err))
 	}
+	
+	if m.quitting {
+		return ""
+	}
 
 	switch m.step {
 	case stepFolderSelect:
@@ -531,17 +551,21 @@ func (m newModel) View() string {
 	case stepCreating:
 		return ui.DocStyle.Render(ui.SpinnerView("Creating task...", m.spinner))
 	case stepNewDone:
-		var b strings.Builder
-		b.WriteString(ui.HeaderStyle.Render("Task Created") + "\n\n")
-		if m.createdTask != nil {
-			b.WriteString(fmt.Sprintf("Name: %s\n", m.createdTask.Name))
-			b.WriteString(fmt.Sprintf("ID:   %s\n", m.createdTask.ID))
-		}
-		b.WriteString("\n(Press enter to exit)")
-		return ui.DocStyle.Render(b.String())
+		content := m.viewDoneContent()
+		return ui.DocStyle.Render(fmt.Sprintf("%s\n(Press enter to exit)", content))
 	}
 
 	return ""
+}
+
+func (m newModel) viewDoneContent() string {
+	var b strings.Builder
+	b.WriteString(ui.HeaderStyle.Render("Task Created") + "\n\n")
+	if m.createdTask != nil {
+		b.WriteString(fmt.Sprintf("Name: %s\n", m.createdTask.Name))
+		b.WriteString(fmt.Sprintf("ID:   %s\n", m.createdTask.ID))
+	}
+	return b.String()
 }
 
 func init() {
