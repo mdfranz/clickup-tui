@@ -3,12 +3,14 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	"clickup-tui/pkg/clickup"
 	"clickup-tui/pkg/config"
+	"clickup-tui/pkg/filter"
+	"clickup-tui/pkg/format"
+	"clickup-tui/pkg/ui"
+	"clickup-tui/pkg/util"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -18,54 +20,12 @@ import (
 var (
 	showAll  bool
 	detailed bool
-
-	// Styles
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("170")).
-			MarginTop(1).
-			Underline(true)
-
-	folderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("39")).
-			MarginTop(1).
-			PaddingLeft(2)
-
-	listStyle = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(lipgloss.Color("245")).
-			PaddingLeft(4)
-
-	taskStyle = lipgloss.NewStyle().
-			PaddingLeft(6)
-
-	statusStyle = lipgloss.NewStyle().
-			Bold(true).
-			Width(15)
-
-	idStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
-
-	assigneeStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("211"))
-
-	dateStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
-
-	commentBaseStyle = lipgloss.NewStyle().
-				Italic(true).
-				Foreground(lipgloss.Color("242"))
-
-	noTasksStyle = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(lipgloss.Color("240")).
-			PaddingLeft(4)
 )
 
 var tasksCmd = &cobra.Command{
 	Use:   "tasks",
 	Short: "Show tasks in configured folders",
+	Long:  `Display tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Show all open tasks (includes backlog and scoping)\n  --detailed, -d: Show the last 3 comments for each task`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.LoadConfig()
 		if err != nil {
@@ -77,9 +37,9 @@ var tasksCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		pat := os.Getenv("CLICKUP_PAT")
-		if pat == "" {
-			fmt.Println("Error: CLICKUP_PAT environment variable not set")
+		pat, err := util.GetClickUpPAT()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -106,19 +66,19 @@ var tasksCmd = &cobra.Command{
 		if showAll {
 			title = "All Open Tasks"
 		}
-		fmt.Println(headerStyle.Render(fmt.Sprintf("%s for Space: %s", title, cfg.SpaceName)))
+		fmt.Println(ui.HeaderStyle.Render(fmt.Sprintf("%s for Space: %s", title, cfg.SpaceName)))
 
 		for _, folder := range cfg.Folders {
-			fmt.Println(folderStyle.Render(fmt.Sprintf("Folder: %s", folder.Name)))
+			fmt.Println(ui.FolderStyle.Render(fmt.Sprintf("Folder: %s", folder.Name)))
 
 			lists, err := client.GetLists(folder.ID)
 			if err != nil {
-				fmt.Println(noTasksStyle.Render(fmt.Sprintf("Error getting lists: %v", err)))
+				fmt.Println(ui.NoTasksStyle.Render(fmt.Sprintf("Error getting lists: %v", err)))
 				continue
 			}
 
 			if len(lists) == 0 {
-				fmt.Println(noTasksStyle.Render("No lists found in this folder."))
+				fmt.Println(ui.NoTasksStyle.Render("No lists found in this folder."))
 				continue
 			}
 
@@ -126,23 +86,15 @@ var tasksCmd = &cobra.Command{
 			for _, list := range lists {
 				tasks, err := client.GetTasks(list.ID)
 				if err != nil {
-					fmt.Println(noTasksStyle.Render(fmt.Sprintf("Error getting tasks for list %s: %v", list.Name, err)))
+					fmt.Println(ui.NoTasksStyle.Render(fmt.Sprintf("Error getting tasks for list %s: %v", list.Name, err)))
 					continue
 				}
 
 				if len(tasks) > 0 {
 					var filteredTasks []clickup.Task
 					for _, task := range tasks {
-						status := strings.ToLower(task.Status.Status)
-
-						if showAll {
-							if status != "completed" && status != "closed" {
-								filteredTasks = append(filteredTasks, task)
-							}
-						} else {
-							if status == "in progress" || status == "in review" {
-								filteredTasks = append(filteredTasks, task)
-							}
+						if filter.ShouldIncludeTask(task, showAll) {
+							filteredTasks = append(filteredTasks, task)
 						}
 					}
 
@@ -150,30 +102,15 @@ var tasksCmd = &cobra.Command{
 						if !foundTasks {
 							foundTasks = true
 						}
-						fmt.Println(listStyle.Render(fmt.Sprintf("List: %s", list.Name)))
+						fmt.Println(ui.ListStyle.Render(fmt.Sprintf("List: %s", list.Name)))
 						for _, task := range filteredTasks {
 							status := task.Status.Status
-							sColor := "245" // default gray
-							switch strings.ToLower(status) {
-							case "in progress":
-								sColor = "42" // green
-							case "scoping":
-								sColor = "214" // orange
-							case "in review":
-								sColor = "99" // purple
-							case "backlog":
-								sColor = "240" // dark gray
+							sColor := ui.StatusColors[strings.ToLower(status)]
+							if sColor == "" {
+								sColor = ui.ColorGray
 							}
 
-							// Format task update date
-							var formattedDate string
-							if task.DateUpdated != "" {
-								ms, err := strconv.ParseInt(task.DateUpdated, 10, 64)
-								if err == nil {
-									t := time.Unix(0, ms*int64(time.Millisecond))
-									formattedDate = t.Format("01/02")
-								}
-							}
+							formattedDate := format.FormatTaskDate(task.DateUpdated)
 
 							// Format assignees (excluding current user)
 							var otherAssignees []string
@@ -184,14 +121,16 @@ var tasksCmd = &cobra.Command{
 							}
 							assigneesStr := ""
 							if len(otherAssignees) > 0 {
-								assigneesStr = assigneeStyle.Render(" @" + strings.Join(otherAssignees, ", @"))
+								assigneesStr = ui.AssigneeStyle.Render(" @" + strings.Join(otherAssignees, ", @"))
 							}
 
-							styledStatus := statusStyle.Foreground(lipgloss.Color(sColor)).Render("[" + status + "]")
-							styledID := idStyle.Render("(" + task.ID + ")")
-							styledDate := dateStyle.Render(formattedDate)
+							styledStatus := ui.StatusStyle.
+								Foreground(lipgloss.Color(sColor)).
+								Render("[" + status + "]")
+							styledID := ui.IDStyle.Render("(" + task.ID + ")")
+							styledDate := ui.DateStyle.Render(formattedDate)
 
-							fmt.Println(taskStyle.Render(fmt.Sprintf("%s %s %s %s %s", styledStatus, task.Name, assigneesStr, styledID, styledDate)))
+							fmt.Println(ui.TaskStyle.Render(fmt.Sprintf("%s %s %s %s %s", styledStatus, task.Name, assigneesStr, styledID, styledDate)))
 
 							if detailed {
 								comments, err := client.GetTaskComments(task.ID)
@@ -202,46 +141,39 @@ var tasksCmd = &cobra.Command{
 									}
 									for i := 0; i < limit; i++ {
 										comment := comments[i]
-										var commentDate string
-										if comment.Date != "" {
-											ms, err := strconv.ParseInt(comment.Date, 10, 64)
-											if err == nil {
-												t := time.Unix(0, ms*int64(time.Millisecond))
-												commentDate = t.Format("01/02")
-											}
-										}
-										
+										commentDate := format.FormatTaskDate(comment.Date)
+
 										prefix := "├"
 										if i == limit-1 {
 											prefix = "└"
 										}
-										
+
 										// Base indentation for the comment block
 										blockIndent := 22
-										headerText := fmt.Sprintf("%s %s %s: ", prefix, dateStyle.Render(commentDate), comment.User.Username)
+										headerText := fmt.Sprintf("%s %s %s: ", prefix, ui.DateStyle.Render(commentDate), comment.User.Username)
 										// Header width without colors
 										headerWidth := lipgloss.Width(headerText)
-										
+
 										contentWidth := width - blockIndent - headerWidth
 										if contentWidth < 20 {
 											contentWidth = 20
 										}
 
 										commentText := strings.TrimSpace(comment.CommentText)
-										
+
 										// Use lipgloss to wrap the text
 										wrapped := lipgloss.NewStyle().Width(contentWidth).Render(commentText)
 										lines := strings.Split(wrapped, "\n")
-										
+
 										// Render first line with header
-										fmt.Printf("%s%s%s\n", strings.Repeat(" ", blockIndent), commentBaseStyle.Render(headerText), commentBaseStyle.Render(lines[0]))
-										
+										fmt.Printf("%s%s%s\n", strings.Repeat(" ", blockIndent), ui.CommentBaseStyle.Render(headerText), ui.CommentBaseStyle.Render(lines[0]))
+
 										// Render subsequent lines with indentation
 										indent := strings.Repeat(" ", blockIndent+headerWidth)
 										for j := 1; j < len(lines); j++ {
 											line := strings.TrimSpace(lines[j])
 											if line != "" {
-												fmt.Printf("%s%s\n", indent, commentBaseStyle.Render(line))
+												fmt.Printf("%s%s\n", indent, ui.CommentBaseStyle.Render(line))
 											}
 										}
 									}
@@ -257,7 +189,7 @@ var tasksCmd = &cobra.Command{
 				if showAll {
 					msg = "No open tasks found."
 				}
-				fmt.Println(noTasksStyle.Render(msg))
+				fmt.Println(ui.NoTasksStyle.Render(msg))
 			}
 		}
 	},

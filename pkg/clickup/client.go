@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 const APIURL = "https://api.clickup.com/api/v2/"
@@ -46,7 +47,7 @@ type ListsResponse struct {
 }
 
 type User struct {
-	ID       int    `json:"id"`
+	ID       string `json:"id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
 }
@@ -83,231 +84,103 @@ type Client struct {
 
 func NewClient(pat string) *Client {
 	return &Client{
-		HTTPClient: &http.Client{},
+		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		PAT:        pat,
 	}
 }
 
-func (c *Client) GetTeams() ([]Team, error) {
-	req, err := http.NewRequest("GET", APIURL+"team", nil)
+// doRequest is a helper method that handles the standard HTTP request/response pattern.
+// It creates a request, adds authorization, executes it, checks the status,
+// reads the body, and unmarshals the JSON response into the target.
+func (c *Client) doRequest(method, url string, target interface{}) error {
+	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	req.Header.Add("Authorization", c.PAT)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get teams: status %d", resp.StatusCode)
+		return fmt.Errorf("API error: status %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
+	if err := json.Unmarshal(body, target); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) GetTeams() ([]Team, error) {
 	var teamsResp TeamsResponse
-	if err := json.Unmarshal(body, &teamsResp); err != nil {
+	if err := c.doRequest("GET", APIURL+"team", &teamsResp); err != nil {
 		return nil, err
 	}
-
 	return teamsResp.Teams, nil
 }
 
 func (c *Client) GetUser() (User, error) {
-	req, err := http.NewRequest("GET", APIURL+"user", nil)
-	if err != nil {
-		return User{}, err
-	}
-
-	req.Header.Add("Authorization", c.PAT)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return User{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return User{}, fmt.Errorf("failed to get current user: status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return User{}, err
-	}
-
 	var userResp struct {
 		User User `json:"user"`
 	}
-	if err := json.Unmarshal(body, &userResp); err != nil {
+	if err := c.doRequest("GET", APIURL+"user", &userResp); err != nil {
 		return User{}, err
 	}
-
 	return userResp.User, nil
 }
 
 func (c *Client) GetSpaces(teamID string) ([]Space, error) {
 	url := fmt.Sprintf("%steam/%s/space?archived=false", APIURL, teamID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Authorization", c.PAT)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get spaces for team %s: status %d", teamID, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var spacesResp SpacesResponse
-	if err := json.Unmarshal(body, &spacesResp); err != nil {
+	if err := c.doRequest("GET", url, &spacesResp); err != nil {
 		return nil, err
 	}
-
 	return spacesResp.Spaces, nil
 }
 
 func (c *Client) GetFolders(spaceID string) ([]Folder, error) {
 	url := fmt.Sprintf("%sspace/%s/folder?archived=false", APIURL, spaceID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Authorization", c.PAT)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get folders for space %s: status %d", spaceID, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var foldersResp FoldersResponse
-	if err := json.Unmarshal(body, &foldersResp); err != nil {
+	if err := c.doRequest("GET", url, &foldersResp); err != nil {
 		return nil, err
 	}
-
 	return foldersResp.Folders, nil
 }
 
 func (c *Client) GetLists(folderID string) ([]List, error) {
 	url := fmt.Sprintf("%sfolder/%s/list?archived=false", APIURL, folderID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Authorization", c.PAT)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get lists for folder %s: status %d", folderID, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var listsResp ListsResponse
-	if err := json.Unmarshal(body, &listsResp); err != nil {
+	if err := c.doRequest("GET", url, &listsResp); err != nil {
 		return nil, err
 	}
-
 	return listsResp.Lists, nil
 }
 
 func (c *Client) GetTasks(listID string) ([]Task, error) {
 	url := fmt.Sprintf("%slist/%s/task?archived=false&include_closed=false", APIURL, listID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Authorization", c.PAT)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get tasks for list %s: status %d", listID, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var tasksResp TasksResponse
-	if err := json.Unmarshal(body, &tasksResp); err != nil {
+	if err := c.doRequest("GET", url, &tasksResp); err != nil {
 		return nil, err
 	}
-
 	return tasksResp.Tasks, nil
 }
 
 func (c *Client) GetTaskComments(taskID string) ([]Comment, error) {
 	url := fmt.Sprintf("%stask/%s/comment", APIURL, taskID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Authorization", c.PAT)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get comments for task %s: status %d", taskID, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var commentsResp CommentsResponse
-	if err := json.Unmarshal(body, &commentsResp); err != nil {
+	if err := c.doRequest("GET", url, &commentsResp); err != nil {
 		return nil, err
 	}
-
 	return commentsResp.Comments, nil
 }

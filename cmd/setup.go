@@ -7,10 +7,11 @@ import (
 
 	"clickup-tui/pkg/clickup"
 	"clickup-tui/pkg/config"
+	"clickup-tui/pkg/ui"
+	"clickup-tui/pkg/util"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -18,9 +19,9 @@ var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Configure the default ClickUp workspace, space, and folders",
 	Run: func(cmd *cobra.Command, args []string) {
-		pat := os.Getenv("CLICKUP_PAT")
-		if pat == "" {
-			fmt.Println("Error: CLICKUP_PAT environment variable not set")
+		pat, err := util.GetClickUpPAT()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -106,10 +107,10 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	}
 
 	if index == m.Index() {
-		style := lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
+		style := ui.DocStyle.PaddingLeft(2).Foreground(ui.DocStyle.GetForeground())
 		fmt.Fprint(w, style.Render("> "+str))
 	} else {
-		style := lipgloss.NewStyle().PaddingLeft(4)
+		style := ui.DocStyle.PaddingLeft(4)
 		fmt.Fprint(w, style.Render(str))
 	}
 }
@@ -264,7 +265,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case tea.WindowSizeMsg:
-		h, v := docStyle.GetFrameSize()
+		h, v := ui.DocStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
 	}
 
@@ -279,10 +280,8 @@ func (m model) View() string {
 	if m.step == stepDone {
 		return "Setup complete!\n"
 	}
-	return docStyle.Render(m.list.View())
+	return ui.DocStyle.Render(m.list.View())
 }
-
-var docStyle = lipgloss.NewStyle().Margin(1, 2)
 
 func init() {
 	rootCmd.AddCommand(setupCmd)

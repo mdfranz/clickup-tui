@@ -3,17 +3,18 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	"clickup-tui/pkg/clickup"
 	"clickup-tui/pkg/config"
+	"clickup-tui/pkg/filter"
+	"clickup-tui/pkg/format"
+	"clickup-tui/pkg/ui"
+	"clickup-tui/pkg/util"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +25,7 @@ var browseAll bool
 var browseCmd = &cobra.Command{
 	Use:   "browse",
 	Short: "Browse tasks in an interactive TUI",
+	Long:  `Interactively browse tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Browse all open tasks (includes backlog and scoping)`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.LoadConfig()
 		if err != nil {
@@ -35,9 +37,9 @@ var browseCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		pat := os.Getenv("CLICKUP_PAT")
-		if pat == "" {
-			fmt.Println("Error: CLICKUP_PAT environment variable not set")
+		pat, err := util.GetClickUpPAT()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -65,14 +67,7 @@ func (i taskItem) Title() string {
 }
 
 func (i taskItem) Description() string {
-	var formattedDate string
-	if i.task.DateUpdated != "" {
-		ms, err := strconv.ParseInt(i.task.DateUpdated, 10, 64)
-		if err == nil {
-			t := time.Unix(0, ms*int64(time.Millisecond))
-			formattedDate = t.Format("01/02")
-		}
-	}
+	formattedDate := format.FormatTaskDate(i.task.DateUpdated)
 	return fmt.Sprintf("Folder: %s | List: %s | ID: %s | Updated: %s", i.folderName, i.listName, i.task.ID, formattedDate)
 }
 
@@ -135,15 +130,8 @@ func (m browseModel) Init() tea.Cmd {
 					continue
 				}
 				for _, task := range tasks {
-					status := strings.ToLower(task.Status.Status)
-					if m.all {
-						if status != "completed" && status != "closed" {
-							allItems = append(allItems, taskItem{task: task, folderName: folder.Name, listName: listObj.Name})
-						}
-					} else {
-						if status == "in progress" || status == "in review" {
-							allItems = append(allItems, taskItem{task: task, folderName: folder.Name, listName: listObj.Name})
-						}
+					if filter.ShouldIncludeTask(task, m.all) {
+						allItems = append(allItems, taskItem{task: task, folderName: folder.Name, listName: listObj.Name})
 					}
 				}
 			}
@@ -207,7 +195,7 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		h, v := docStyle.GetFrameSize()
+		h, v := ui.DocStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
 		m.viewport = viewport.New(msg.Width-h, msg.Height-v-10)
 		if m.state == stateDetail {
@@ -238,10 +226,10 @@ func (m browseModel) renderDetail() string {
 	var b strings.Builder
 
 	// Header
-	b.WriteString(headerStyle.Render(m.selectedTask.task.Name) + "\n")
+	b.WriteString(ui.HeaderStyle.Render(m.selectedTask.task.Name) + "\n")
 	b.WriteString(fmt.Sprintf("Status: %s\n", m.selectedTask.task.Status.Status))
 	b.WriteString(fmt.Sprintf("Folder: %s | List: %s\n", m.selectedTask.folderName, m.selectedTask.listName))
-	
+
 	assignees := []string{}
 	for _, a := range m.selectedTask.task.Assignees {
 		assignees = append(assignees, a.Username)
@@ -259,22 +247,15 @@ func (m browseModel) renderDetail() string {
 	} else {
 		b.WriteString("Recent Comments:\n\n")
 		for _, c := range m.comments {
-			var date string
-			if c.Date != "" {
-				ms, err := strconv.ParseInt(c.Date, 10, 64)
-				if err == nil {
-					t := time.Unix(0, ms*int64(time.Millisecond))
-					date = t.Format("01/02 15:04")
-				}
-			}
-			b.WriteString(fmt.Sprintf("%s %s:\n", dateStyle.Render(date), assigneeStyle.Render(c.User.Username)))
-			
+			date := format.FormatCommentDate(c.Date)
+			b.WriteString(fmt.Sprintf("%s %s:\n", ui.DateStyle.Render(date), ui.AssigneeStyle.Render(c.User.Username)))
+
 			// Wrap comment text
 			wrapWidth := m.width - 15
 			if wrapWidth < 20 {
 				wrapWidth = 20
 			}
-			wrapped := lipgloss.NewStyle().Width(wrapWidth).PaddingLeft(2).Render(strings.TrimSpace(c.CommentText))
+			wrapped := ui.DocStyle.Width(wrapWidth).PaddingLeft(2).Render(strings.TrimSpace(c.CommentText))
 			b.WriteString(wrapped + "\n\n")
 		}
 	}
@@ -288,9 +269,9 @@ func (m browseModel) View() string {
 		return fmt.Sprintf("\nError: %v\n", m.err)
 	}
 	if m.state == stateDetail {
-		return docStyle.Render(m.viewport.View())
+		return ui.DocStyle.Render(m.viewport.View())
 	}
-	return docStyle.Render(m.list.View())
+	return ui.DocStyle.Render(m.list.View())
 }
 
 func init() {
