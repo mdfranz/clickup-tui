@@ -8,7 +8,7 @@ A terminal user interface (TUI) for ClickUp, built with Go, Cobra, and Bubble Te
 - **Tasks**: Display tasks from your configured folders with filtering and comments
 - **Browse**: Interactively browse tasks with detailed view
 - **Show**: Display current configuration
-- **Flexible Filtering**: Show active tasks or all open tasks (including backlog/scoping)
+- **Flexible Filtering**: Show active tasks or all open tasks, and filter by assignee (defaults to your tasks)
 - **Comment Display**: View recent comments for tasks
 - **XDG Compliance**: Respects XDG Base Directory specification for config storage
 
@@ -60,7 +60,7 @@ This will save your configuration to:
 
 ### Display Active Tasks
 
-Show tasks currently in progress or in review:
+Show your tasks currently in progress or in review (defaults to your assigned tasks):
 
 ```bash
 clickup-tui tasks
@@ -68,10 +68,18 @@ clickup-tui tasks
 
 ### Display All Open Tasks
 
-Show all tasks except completed/closed:
+Show all your tasks except completed/closed:
 
 ```bash
 clickup-tui tasks --all
+```
+
+### Display All Users' Tasks
+
+Show tasks for all assignees, not just yours:
+
+```bash
+clickup-tui tasks --mine=false
 ```
 
 ### Display Tasks with Comments
@@ -84,10 +92,16 @@ clickup-tui tasks --detailed
 
 ### Browse Tasks Interactively
 
-Start an interactive browser for tasks:
+Start an interactive browser for your tasks:
 
 ```bash
 clickup-tui browse
+```
+
+To browse tasks for all assignees:
+
+```bash
+clickup-tui browse --mine=false
 ```
 
 Navigate with:
@@ -213,7 +227,7 @@ This is normal if:
 - All tasks are already completed
 - Your search filters exclude all tasks
 
-Use `--all` flag to see all open tasks.
+Use `--all` flag to see all open tasks, or `--mine=false` to see tasks assigned to other people.
 
 ## Dependencies
 
