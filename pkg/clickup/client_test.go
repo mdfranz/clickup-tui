@@ -81,7 +81,7 @@ func TestGetUser(t *testing.T) {
 			User User `json:"user"`
 		}{
 			User: User{
-				ID:       "user-123",
+				ID:       UserID(123),
 				Username: "testuser",
 				Email:    "test@example.com",
 			},
@@ -110,8 +110,8 @@ func TestGetUser(t *testing.T) {
 	}
 	json.NewDecoder(resp.Body).Decode(&userResp)
 
-	if userResp.User.ID != "user-123" {
-		t.Errorf("User ID mismatch: got %q, want %q", userResp.User.ID, "user-123")
+	if userResp.User.ID.String() != "123" {
+		t.Errorf("User ID mismatch: got %q, want %q", userResp.User.ID.String(), "123")
 	}
 	if userResp.User.Username != "testuser" {
 		t.Errorf("Username mismatch: got %q, want %q", userResp.User.Username, "testuser")
@@ -149,16 +149,16 @@ func TestClientErrors(t *testing.T) {
 }
 
 func TestUserIDType(t *testing.T) {
-	// Verify User.ID is a string type
+	// Verify User.ID handles numeric values
 	user := User{
-		ID:       "user-string-123",
+		ID:       UserID(12345),
 		Username: "testuser",
 		Email:    "test@example.com",
 	}
 
-	// This should compile without issue
-	idStr := user.ID
-	if idStr != "user-string-123" {
-		t.Errorf("User ID should be string type, got: %T", user.ID)
+	// Should be able to convert to string
+	idStr := user.ID.String()
+	if idStr != "12345" {
+		t.Errorf("User ID String() = %q, want %q", idStr, "12345")
 	}
 }

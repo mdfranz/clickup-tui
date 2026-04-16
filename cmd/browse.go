@@ -234,6 +234,7 @@ func (m browseModel) renderDetail() string {
 	for _, a := range m.selectedTask.task.Assignees {
 		assignees = append(assignees, a.Username)
 	}
+	// Note: assignee filtering would use a.ID.String() == currentUser.ID.String()
 	if len(assignees) > 0 {
 		b.WriteString(fmt.Sprintf("Assignees: %s\n", strings.Join(assignees, ", ")))
 	}

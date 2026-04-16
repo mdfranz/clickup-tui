@@ -47,9 +47,16 @@ type ListsResponse struct {
 }
 
 type User struct {
-	ID       string `json:"id"`
+	ID       UserID `json:"id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
+}
+
+// UserID handles both numeric and string ID values from the API
+type UserID int64
+
+func (u UserID) String() string {
+	return fmt.Sprintf("%d", u)
 }
 
 type Task struct {

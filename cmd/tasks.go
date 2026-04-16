@@ -115,7 +115,7 @@ var tasksCmd = &cobra.Command{
 							// Format assignees (excluding current user)
 							var otherAssignees []string
 							for _, a := range task.Assignees {
-								if a.ID != currentUser.ID {
+								if a.ID.String() != currentUser.ID.String() {
 									otherAssignees = append(otherAssignees, a.Username)
 								}
 							}
