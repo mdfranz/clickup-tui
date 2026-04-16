@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"clickup-tui/pkg/ai"
 	"clickup-tui/pkg/clickup"
 	"clickup-tui/pkg/config"
 	"clickup-tui/pkg/filter"
@@ -12,21 +13,23 @@ import (
 	"clickup-tui/pkg/ui"
 	"clickup-tui/pkg/util"
 
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
 var (
-	showAll  bool
-	detailed bool
-	mine     bool
+	showAll   bool
+	detailed  bool
+	summarize bool
+	mine      bool
 )
 
 var tasksCmd = &cobra.Command{
 	Use:   "tasks",
 	Short: "Show tasks in configured folders",
-	Long:  `Display tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Show all open tasks (includes backlog and scoping)\n  --detailed, -d: Show the last 3 comments for each task\n  --mine: Only show tasks assigned to you (default true)`,
+	Long:  `Display tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Show all open tasks (includes backlog and scoping)\n  --detailed, -d: Show the last 3 comments for each task\n  --summarize, -s: Generate an AI summary of each task\n  --mine: Only show tasks assigned to you (default true)`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.LoadConfig()
 		if err != nil {
@@ -45,6 +48,15 @@ var tasksCmd = &cobra.Command{
 		}
 
 		client := clickup.NewClient(pat)
+
+		var summarizer *ai.Summarizer
+		if summarize {
+			summarizer, err = ai.NewSummarizer()
+			if err != nil {
+				fmt.Printf("Error initializing AI summarizer: %v\n", err)
+				os.Exit(1)
+			}
+		}
 
 		currentUser, err := client.GetUser()
 		if err != nil {
@@ -136,6 +148,25 @@ var tasksCmd = &cobra.Command{
 
 							fmt.Println(ui.TaskStyle.Render(fmt.Sprintf("%s %s %s %s %s", styledStatus, task.Name, assigneesStr, styledID, styledDate)))
 
+							if summarize {
+								fullTask, err := client.GetTask(task.ID)
+								if err == nil {
+									comments, _ := client.GetTaskComments(task.ID)
+									summary, err := summarizer.SummarizeTask(fullTask, comments)
+									if err == nil {
+										r, _ := glamour.NewTermRenderer(
+											glamour.WithStandardStyle("dark"),
+											glamour.WithWordWrap(width-35),
+										)
+										out, _ := r.Render(summary)
+										lines := strings.Split(strings.TrimSpace(out), "\n")
+										for _, line := range lines {
+											fmt.Printf("%s%s\n", strings.Repeat(" ", 22), ui.SummaryStyle.Render(line))
+										}
+									}
+								}
+							}
+
 							if detailed {
 								comments, err := client.GetTaskComments(task.ID)
 								if err == nil && len(comments) > 0 {
@@ -202,6 +233,7 @@ var tasksCmd = &cobra.Command{
 func init() {
 	tasksCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all open tasks (including backlog and scoping)")
 	tasksCmd.Flags().BoolVarP(&detailed, "detailed", "d", false, "Show the last 3 comments for each task")
+	tasksCmd.Flags().BoolVarP(&summarize, "summarize", "s", false, "Generate an AI summary of each task")
 	tasksCmd.Flags().BoolVar(&mine, "mine", true, "Only show tasks assigned to you")
 	rootCmd.AddCommand(tasksCmd)
 }

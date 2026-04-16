@@ -67,6 +67,7 @@ type Task struct {
 	} `json:"status"`
 	Assignees   []User `json:"assignees"`
 	DateUpdated string `json:"date_updated"` // Unix timestamp in milliseconds as string
+	TextContent string `json:"text_content"` // Task description
 }
 
 type TasksResponse struct {
@@ -181,6 +182,15 @@ func (c *Client) GetTasks(listID string) ([]Task, error) {
 		return nil, err
 	}
 	return tasksResp.Tasks, nil
+}
+
+func (c *Client) GetTask(taskID string) (Task, error) {
+	url := fmt.Sprintf("%stask/%s", APIURL, taskID)
+	var task Task
+	if err := c.doRequest("GET", url, &task); err != nil {
+		return Task{}, err
+	}
+	return task, nil
 }
 
 func (c *Client) GetTaskComments(taskID string) ([]Comment, error) {
