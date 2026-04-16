@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 
 	"clickup-tui/pkg/clickup"
@@ -13,6 +15,7 @@ import (
 	"clickup-tui/pkg/util"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -109,6 +112,7 @@ type browseModel struct {
 	comments     []clickup.Comment
 	loading      bool
 	posting      bool
+	spinner      spinner.Model
 	err          error
 	width        int
 	height       int
@@ -126,20 +130,22 @@ func initialBrowseModel(client *clickup.Client, cfg config.Config, userID string
 	l.Title = title
 
 	return browseModel{
-		client: client,
-		cfg:    cfg,
-		userID: userID,
-		all:    all,
-		mine:   mine,
-		list:   l,
-		state:  stateList,
+		client:  client,
+		cfg:     cfg,
+		userID:  userID,
+		all:     all,
+		mine:    mine,
+		list:    l,
+		state:   stateList,
+		loading: true,
+		spinner: ui.NewSpinnerModel(),
 	}
 }
 
 type commentsMsg []clickup.Comment
 
 func (m browseModel) Init() tea.Cmd {
-	return func() tea.Msg {
+	loadCmd := func() tea.Msg {
 		var allItems []taskItem
 		for _, folder := range m.cfg.Folders {
 			lists, err := m.client.GetLists(folder.ID)
@@ -158,8 +164,17 @@ func (m browseModel) Init() tea.Cmd {
 				}
 			}
 		}
+
+		// Sort by DateUpdated descending
+		sort.Slice(allItems, func(i, j int) bool {
+			timeI, _ := strconv.ParseInt(allItems[i].task.DateUpdated, 10, 64)
+			timeJ, _ := strconv.ParseInt(allItems[j].task.DateUpdated, 10, 64)
+			return timeI > timeJ
+		})
+
 		return browseTasksMsg(allItems)
 	}
+	return tea.Batch(loadCmd, m.spinner.Tick)
 }
 
 func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -183,12 +198,12 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.posting = true
 				taskID := m.selectedTask.task.ID
-				return m, func() tea.Msg {
+				return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
 					if err := m.client.CreateTaskComment(taskID, text); err != nil {
 						return errMsg(err)
 					}
 					return commentPostedMsg{}
-				}
+				})
 			}
 			// Let textarea handle all other keys
 			m.textarea, cmd = m.textarea.Update(msg)
@@ -208,13 +223,13 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedTask = &it
 					m.state = stateDetail
 					m.loading = true
-					return m, func() tea.Msg {
+					return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
 						comments, err := m.client.GetTaskComments(it.task.ID)
 						if err != nil {
 							return errMsg(err)
 						}
 						return commentsMsg(comments)
-					}
+					})
 				}
 			}
 		case "c":
@@ -233,22 +248,41 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateList
 				return m, nil
 			}
+		case " ":
+			if m.state == stateDetail {
+				// Move to next task
+				m.list.CursorDown()
+				if it, ok := m.list.SelectedItem().(taskItem); ok {
+					// Only load if it's actually a different task (in case we're at the bottom)
+					if m.selectedTask == nil || m.selectedTask.task.ID != it.task.ID {
+						m.selectedTask = &it
+						m.loading = true
+						return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
+							comments, err := m.client.GetTaskComments(it.task.ID)
+							if err != nil {
+								return errMsg(err)
+							}
+							return commentsMsg(comments)
+						})
+					}
+				}
+			}
 		}
 
-	case commentPostedMsg:
-		m.posting = false
+	case commentPostedMsg:		m.posting = false
 		m.state = stateDetail
 		m.loading = true
 		taskID := m.selectedTask.task.ID
-		return m, func() tea.Msg {
+		return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
 			comments, err := m.client.GetTaskComments(taskID)
 			if err != nil {
 				return errMsg(err)
 			}
 			return commentsMsg(comments)
-		}
+		})
 
 	case browseTasksMsg:
+		m.loading = false
 		items := make([]list.Item, len(msg))
 		for i, v := range msg {
 			items[i] = v
@@ -267,6 +301,13 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.comments = msg
 		m.viewport.SetContent(m.renderDetail())
+
+	case spinner.TickMsg:
+		if m.loading || m.posting {
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -318,7 +359,7 @@ func (m browseModel) renderDetail() string {
 
 	// Comments
 	if m.loading {
-		b.WriteString("Loading comments...")
+		b.WriteString(ui.SpinnerView("Loading comments...", m.spinner))
 	} else if len(m.comments) == 0 {
 		b.WriteString("No comments found.")
 	} else {
@@ -337,7 +378,7 @@ func (m browseModel) renderDetail() string {
 		}
 	}
 
-	b.WriteString("\n\n(c: add comment | Esc/q: go back)")
+	b.WriteString("\n\n(c: add comment | space: next task | Esc/q: go back)")
 	return b.String()
 }
 
@@ -349,12 +390,15 @@ func (m browseModel) View() string {
 		var b strings.Builder
 		b.WriteString(ui.HeaderStyle.Render("Add Comment: "+m.selectedTask.task.Name) + "\n\n")
 		if m.posting {
-			b.WriteString("Posting comment...")
+			b.WriteString(ui.SpinnerView("Posting comment...", m.spinner))
 		} else {
 			b.WriteString(m.textarea.View())
 			b.WriteString("\n\n(Ctrl+S: submit | Esc: cancel)")
 		}
 		return ui.DocStyle.Render(b.String())
+	}
+	if m.state == stateList && m.loading && len(m.list.Items()) == 0 {
+		return ui.DocStyle.Render(ui.SpinnerView("Loading tasks...", m.spinner))
 	}
 	if m.state == stateDetail {
 		return ui.DocStyle.Render(m.viewport.View())

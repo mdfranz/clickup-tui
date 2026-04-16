@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 
 	"clickup-tui/pkg/clickup"
@@ -12,6 +14,7 @@ import (
 	"clickup-tui/pkg/ui"
 	"clickup-tui/pkg/util"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -97,14 +100,15 @@ type standupModel struct {
 	err      error
 
 	// Per-task update state
-	updateIdx    int                // index into selected tasks
-	selected     []int              // indices of selected tasks
-	statuses     []clickup.Status   // available statuses for current task's list
-	statusCursor int                // cursor in status picker
-	newStatus    string             // chosen status (empty = no change)
+	updateIdx    int              // index into selected tasks
+	selected     []int            // indices of selected tasks
+	statuses     []clickup.Status // available statuses for current task's list
+	statusCursor int              // cursor in status picker
+	newStatus    string           // chosen status (empty = no change)
 
 	// Summary of posted updates
-	posted []standupResult
+	posted  []standupResult
+	spinner spinner.Model
 }
 
 type standupResult struct {
@@ -121,17 +125,18 @@ type standupUpdatePosted struct{}
 
 func initialStandupModel(client *clickup.Client, cfg config.Config, userID string, all bool, mine bool) standupModel {
 	return standupModel{
-		client: client,
-		cfg:    cfg,
-		userID: userID,
-		all:    all,
-		mine:   mine,
-		state:  standupLoading,
+		client:  client,
+		cfg:     cfg,
+		userID:  userID,
+		all:     all,
+		mine:    mine,
+		state:   standupLoading,
+		spinner: ui.NewSpinnerModel(),
 	}
 }
 
 func (m standupModel) Init() tea.Cmd {
-	return func() tea.Msg {
+	loadCmd := func() tea.Msg {
 		var tasks []standupTask
 		for _, folder := range m.cfg.Folders {
 			lists, err := m.client.GetLists(folder.ID)
@@ -155,8 +160,17 @@ func (m standupModel) Init() tea.Cmd {
 				}
 			}
 		}
+		
+		// Sort by DateUpdated descending
+		sort.Slice(tasks, func(i, j int) bool {
+			timeI, _ := strconv.ParseInt(tasks[i].task.DateUpdated, 10, 64)
+			timeJ, _ := strconv.ParseInt(tasks[j].task.DateUpdated, 10, 64)
+			return timeI > timeJ
+		})
+		
 		return standupTasksLoaded(tasks)
 	}
+	return tea.Batch(loadCmd, m.spinner.Tick)
 }
 
 func (m standupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -202,6 +216,13 @@ func (m standupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg
+		return m, nil
+
+	case spinner.TickMsg:
+		if m.state == standupLoading || m.state == standupPosting {
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -369,7 +390,7 @@ func (m standupModel) submitUpdate() (tea.Model, tea.Cmd) {
 	}
 	m.posted = append(m.posted, result)
 
-	return m, func() tea.Msg {
+	return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
 		if hasComment {
 			if err := m.client.CreateTaskComment(task.task.ID, commentText); err != nil {
 				return errMsg(err)
@@ -381,7 +402,7 @@ func (m standupModel) submitUpdate() (tea.Model, tea.Cmd) {
 			}
 		}
 		return standupUpdatePosted{}
-	}
+	})
 }
 
 func (m standupModel) View() string {
@@ -391,7 +412,7 @@ func (m standupModel) View() string {
 
 	switch m.state {
 	case standupLoading:
-		return ui.DocStyle.Render("Loading tasks...")
+		return ui.DocStyle.Render(ui.SpinnerView("Loading tasks...", m.spinner))
 
 	case standupSelect:
 		return ui.DocStyle.Render(m.viewSelect())
@@ -403,7 +424,7 @@ func (m standupModel) View() string {
 		return ui.DocStyle.Render(m.viewStatusPicker())
 
 	case standupPosting:
-		return ui.DocStyle.Render("Posting update...")
+		return ui.DocStyle.Render(ui.SpinnerView("Posting update...", m.spinner))
 
 	case standupDone:
 		return ui.DocStyle.Render(m.viewDone())

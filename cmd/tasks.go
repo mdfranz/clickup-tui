@@ -90,15 +90,20 @@ var tasksCmd = &cobra.Command{
 		fmt.Println(ui.HeaderStyle.Render(fmt.Sprintf("%s for Space: %s", title, cfg.SpaceName)))
 
 		for _, folder := range cfg.Folders {
-			fmt.Println(ui.FolderStyle.Render(fmt.Sprintf("Folder: %s", folder.Name)))
+			loadSpinner := ui.NewConsoleSpinner(fmt.Sprintf("Loading tasks for folder: %s", folder.Name))
+			loadSpinner.Start()
+			var output strings.Builder
+			output.WriteString(ui.FolderStyle.Render(fmt.Sprintf("Folder: %s", folder.Name)) + "\n")
 
 			lists, err := client.GetLists(folder.ID)
 			if err != nil {
+				loadSpinner.Stop()
 				fmt.Println(ui.NoTasksStyle.Render(fmt.Sprintf("Error getting lists: %v", err)))
 				continue
 			}
 
 			if len(lists) == 0 {
+				loadSpinner.Stop()
 				fmt.Println(ui.NoTasksStyle.Render("No lists found in this folder."))
 				continue
 			}
@@ -107,7 +112,7 @@ var tasksCmd = &cobra.Command{
 			for _, list := range lists {
 				tasks, err := client.GetTasks(list.ID)
 				if err != nil {
-					fmt.Println(ui.NoTasksStyle.Render(fmt.Sprintf("Error getting tasks for list %s: %v", list.Name, err)))
+					output.WriteString(ui.NoTasksStyle.Render(fmt.Sprintf("Error getting tasks for list %s: %v", list.Name, err)) + "\n")
 					continue
 				}
 
@@ -123,7 +128,11 @@ var tasksCmd = &cobra.Command{
 						if !foundTasks {
 							foundTasks = true
 						}
-						fmt.Println(ui.ListStyle.Render(fmt.Sprintf("List: %s", list.Name)))
+						
+						// Sort tasks by date, newest first
+						util.SortTasksByDateDesc(filteredTasks)
+						
+						output.WriteString(ui.ListStyle.Render(fmt.Sprintf("List: %s", list.Name)) + "\n")
 						for _, task := range filteredTasks {
 							status := task.Status.Status
 							sColor := ui.StatusColors[strings.ToLower(status)]
@@ -148,12 +157,13 @@ var tasksCmd = &cobra.Command{
 							styledStatus := ui.StatusStyle.
 								Foreground(lipgloss.Color(sColor)).
 								Render("[" + status + "]")
+							styledName := ui.TaskNameStyle.Render(task.Name)
 							styledID := ui.IDStyle.Render("(" + task.ID + ")")
 							styledDate := ui.DateStyle.Render(formattedDate)
 
-							fmt.Println(ui.TaskStyle.Render(fmt.Sprintf("%s %s %s %s %s", styledStatus, task.Name, assigneesStr, styledID, styledDate)))
+							output.WriteString(ui.TaskStyle.Render(fmt.Sprintf("%s %s %s %s %s", styledStatus, styledName, assigneesStr, styledID, styledDate)) + "\n")
 
-							if summarize {
+							if detailed {
 								fullTask, err := client.GetTask(task.ID)
 								if err == nil {
 									comments, _ := client.GetTaskComments(task.ID)
@@ -166,7 +176,7 @@ var tasksCmd = &cobra.Command{
 										out, _ := r.Render(summary)
 										lines := strings.Split(strings.TrimSpace(out), "\n")
 										for _, line := range lines {
-											fmt.Printf("%s%s\n", strings.Repeat(" ", 22), ui.SummaryStyle.Render(line))
+											output.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat(" ", 22), ui.SummaryStyle.Render(line)))
 										}
 									}
 								}
@@ -206,14 +216,14 @@ var tasksCmd = &cobra.Command{
 										lines := strings.Split(wrapped, "\n")
 
 										// Render first line with header
-										fmt.Printf("%s%s%s\n", strings.Repeat(" ", blockIndent), ui.CommentBaseStyle.Render(headerText), ui.CommentBaseStyle.Render(lines[0]))
+										output.WriteString(fmt.Sprintf("%s%s%s\n", strings.Repeat(" ", blockIndent), ui.CommentBaseStyle.Render(headerText), ui.CommentBaseStyle.Render(lines[0])))
 
 										// Render subsequent lines with indentation
 										indent := strings.Repeat(" ", blockIndent+headerWidth)
 										for j := 1; j < len(lines); j++ {
 											line := strings.TrimSpace(lines[j])
 											if line != "" {
-												fmt.Printf("%s%s\n", indent, ui.CommentBaseStyle.Render(line))
+												output.WriteString(fmt.Sprintf("%s%s\n", indent, ui.CommentBaseStyle.Render(line)))
 											}
 										}
 									}
@@ -229,8 +239,10 @@ var tasksCmd = &cobra.Command{
 				if showAll {
 					msg = "No open tasks found."
 				}
-				fmt.Println(ui.NoTasksStyle.Render(msg))
+				output.WriteString(ui.NoTasksStyle.Render(msg) + "\n")
 			}
+			loadSpinner.Stop()
+			fmt.Print(output.String())
 		}
 	},
 }

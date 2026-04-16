@@ -9,6 +9,7 @@ A terminal user interface (TUI) for ClickUp, built with Go, Cobra, and Bubble Te
 - **Tasks**: Display tasks from your configured folders with filtering and comments
 - **Browse**: Interactively browse tasks with detailed view
 - **New**: Create tasks in your saved folders
+- **Track**: View user activity for the last 10 days
 - **Show**: Display current configuration
 - **Flexible Filtering**: Show active tasks or all open tasks, and filter by assignee (defaults to your tasks)
 - **Comment Display**: View recent comments for tasks
@@ -128,6 +129,20 @@ Create a task in one of your saved folders and lists:
 clickup-tui new
 ```
 
+### Track User Activity
+
+View the last 10 days of activity for a specific user:
+
+```bash
+clickup-tui track
+```
+
+You can also provide a user ID directly:
+
+```bash
+clickup-tui track 1234567
+```
+
 ### View Current Configuration
 
 Display your current setup:
@@ -175,6 +190,7 @@ make lint
 │   ├── tasks.go      # Task display
 │   ├── browse.go     # Interactive browse
 │   ├── new.go        # Create tasks
+│   ├── track.go      # View user activity
 │   ├── standup.go    # Standup workflow
 │   └── config.go     # Config display
 

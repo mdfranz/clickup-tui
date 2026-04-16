@@ -19,6 +19,7 @@ var StatusColors = map[string]string{
 	"in progress": ColorGreen,
 	"scoping":     ColorOrange,
 	"in review":   ColorIndigo,
+	"blocked":     "196",
 	"backlog":     ColorDarkGray,
 }
 
@@ -43,6 +44,9 @@ var (
 
 	TaskStyle = lipgloss.NewStyle().
 		PaddingLeft(6)
+
+	TaskNameStyle = lipgloss.NewStyle().
+		Bold(true)
 
 	StatusStyle = lipgloss.NewStyle().
 		Bold(true).

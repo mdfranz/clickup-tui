@@ -29,5 +29,5 @@ func ShouldIncludeTask(task clickup.Task, userID string, showAll bool, mineOnly 
 	if showAll {
 		return status != "completed" && status != "closed"
 	}
-	return status == "in progress" || status == "in review"
+	return status == "in progress" || status == "in review" || status == "blocked"
 }

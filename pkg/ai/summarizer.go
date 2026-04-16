@@ -125,3 +125,72 @@ Tasks to consider:
 	return strings.TrimSpace(res.Choices[0].Content), nil
 }
 
+func (s *Summarizer) SummarizeUserActivity(userName string, date string, activities []clickup.Activity, taskDetails map[string]clickup.Task, taskComments map[string][]clickup.Comment) (string, error) {
+	ctx := context.Background()
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("User: %s\n", userName))
+	b.WriteString(fmt.Sprintf("Date: %s\n\n", date))
+
+	// Group activities by task to provide better context
+	taskActivities := make(map[string][]clickup.Activity)
+	for _, a := range activities {
+		taskActivities[a.TaskID] = append(taskActivities[a.TaskID], a)
+	}
+
+	for taskID, acts := range taskActivities {
+		task, hasTask := taskDetails[taskID]
+		if hasTask {
+			b.WriteString(fmt.Sprintf("Task: [%s] %s\n", task.Status.Status, task.Name))
+			if task.TextContent != "" {
+				desc := task.TextContent
+				if len(desc) > 300 {
+					desc = desc[:300] + "..."
+				}
+				b.WriteString(fmt.Sprintf("  Description: %s\n", strings.ReplaceAll(desc, "\n", " ")))
+			}
+		} else {
+			b.WriteString(fmt.Sprintf("Task ID: %s (Details unavailable)\n", taskID))
+		}
+
+		b.WriteString("  User Actions:\n")
+		for _, a := range acts {
+			b.WriteString(fmt.Sprintf("  - %s\n", a.Type))
+		}
+
+		comments, hasComments := taskComments[taskID]
+		if hasComments && len(comments) > 0 {
+			b.WriteString("  User Comments on this task:\n")
+			for _, c := range comments {
+				if c.User.Username == userName { // Only show this user's comments for context
+					commentText := strings.TrimSpace(c.CommentText)
+					if len(commentText) > 200 {
+						commentText = commentText[:200] + "..."
+					}
+					b.WriteString(fmt.Sprintf("  - \"%s\"\n", strings.ReplaceAll(commentText, "\n", " ")))
+				}
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	prompt := fmt.Sprintf(`Please provide a concise narrative summary of %s's activity on %s based on the provided actions and comments.
+Focus on what was accomplished, what was discussed, and the overall progress made.
+Do not just list the tasks; weave them into a coherent 1-2 paragraph summary of the day's work.
+
+Activity Data:
+%s`, userName, date, b.String())
+
+	res, err := s.model.GenerateContent(ctx, []llms.MessageContent{
+		llms.TextParts(llms.ChatMessageTypeHuman, prompt),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to generate activity summary: %v", err)
+	}
+
+	if len(res.Choices) == 0 {
+		return "No summary generated.", nil
+	}
+
+	return strings.TrimSpace(res.Choices[0].Content), nil
+}

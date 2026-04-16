@@ -15,18 +15,27 @@ var menuCmd = &cobra.Command{
 	Use:   "menu",
 	Short: "Interactive menu to launch commands",
 	Run: func(cmd *cobra.Command, args []string) {
-		m := initialMenuModel()
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		for {
+			m := initialMenuModel()
+			p := tea.NewProgram(m, tea.WithAltScreen())
 
-		res, err := p.Run()
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
+			res, err := p.Run()
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
 
-		if finalModel, ok := res.(menuModel); ok && finalModel.choice != "" {
+			finalModel, ok := res.(menuModel)
+			if !ok || finalModel.choice == "" {
+				return
+			}
+
+			// Clear the screen
+			fmt.Print("\033[H\033[2J")
+
 			// Find the subcommand and execute it
 			root := cmd.Root()
+			found := false
 			for _, sub := range root.Commands() {
 				if sub.Name() == finalModel.choice {
 					root.SetArgs([]string{finalModel.choice})
@@ -34,11 +43,50 @@ var menuCmd = &cobra.Command{
 						fmt.Printf("Error executing %s: %v\n", finalModel.choice, err)
 						os.Exit(1)
 					}
-					return
+					found = true
+					break
 				}
+			}
+
+			if !found {
+				fmt.Printf("Command %s not found\n", finalModel.choice)
+			}
+
+			// Pause before returning to the menu
+			pauseProg := tea.NewProgram(pauseModel{})
+			pauseRes, err := pauseProg.Run()
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				return
+			}
+			if p, ok := pauseRes.(pauseModel); ok && p.quit {
+				return
 			}
 		}
 	},
+}
+
+type pauseModel struct {
+	quit bool
+}
+
+func (m pauseModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m pauseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
+			m.quit = true
+		}
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m pauseModel) View() string {
+	return "\nPress any key to return to the menu, or 'q' to quit..."
 }
 
 type menuItem struct {
@@ -62,6 +110,7 @@ func initialMenuModel() menuModel {
 		menuItem{cmd: "browse", title: "Browse", description: "Interactively browse tasks"},
 		menuItem{cmd: "new", title: "New Task", description: "Create a new task"},
 		menuItem{cmd: "standup", title: "Standup", description: "Walk through tasks and post updates"},
+		menuItem{cmd: "track", title: "Track Activity", description: "View user activity for the last 10 days"},
 		menuItem{cmd: "setup", title: "Setup", description: "Configure your workspace, space, and folders"},
 		menuItem{cmd: "show", title: "Show Config", description: "Display current configuration"},
 	}

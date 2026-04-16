@@ -11,6 +11,7 @@ import (
 	"clickup-tui/pkg/util"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )
@@ -136,6 +137,7 @@ type model struct {
 	selectedFolders   map[string]string // id -> name
 	err               error
 	loading           bool
+	spinner           spinner.Model
 }
 
 func initialModel(client *clickup.Client) model {
@@ -148,6 +150,7 @@ func initialModel(client *clickup.Client) model {
 		list:            l,
 		loading:         true,
 		selectedFolders: make(map[string]string),
+		spinner:         ui.NewSpinnerModel(),
 	}
 }
 
@@ -157,13 +160,14 @@ type foldersMsg []clickup.Folder
 type errMsg error
 
 func (m model) Init() tea.Cmd {
-	return func() tea.Msg {
+	loadCmd := func() tea.Msg {
 		teams, err := m.client.GetTeams()
 		if err != nil {
 			return errMsg(err)
 		}
 		return teamsMsg(teams)
 	}
+	return tea.Batch(loadCmd, m.spinner.Tick)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -207,25 +211,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.step = stepSpace
 				m.loading = true
 				m.list.Title = "Loading spaces..."
-				return m, func() tea.Msg {
+				return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
 					spaces, err := m.client.GetSpaces(m.selectedWorkspace.ID)
 					if err != nil {
 						return errMsg(err)
 					}
 					return spacesMsg(spaces)
-				}
+				})
 			case stepSpace:
 				m.selectedSpace = clickup.Space{ID: selected.id, Name: selected.name}
 				m.step = stepFolder
 				m.loading = true
 				m.list.Title = "Loading folders..."
-				return m, func() tea.Msg {
+				return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
 					folders, err := m.client.GetFolders(m.selectedSpace.ID)
 					if err != nil {
 						return errMsg(err)
 					}
 					return foldersMsg(folders)
-				}
+				})
 			}
 		}
 
@@ -264,6 +268,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg
 		return m, tea.Quit
 
+	case spinner.TickMsg:
+		if m.loading {
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		h, v := ui.DocStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
@@ -279,6 +290,9 @@ func (m model) View() string {
 	}
 	if m.step == stepDone {
 		return "Setup complete!\n"
+	}
+	if m.loading {
+		return ui.DocStyle.Render(ui.SpinnerView(m.list.Title, m.spinner))
 	}
 	return ui.DocStyle.Render(m.list.View())
 }

@@ -76,11 +76,13 @@ var summarizeCmd = &cobra.Command{
 		fmt.Println(ui.HeaderStyle.Render(fmt.Sprintf("Folder Summaries for Space: %s", cfg.SpaceName)))
 
 		for _, folder := range cfg.Folders {
-			fmt.Print("  " + ui.FolderStyle.MarginTop(0).PaddingLeft(0).Render(fmt.Sprintf("Summarizing Folder: %s... ", folder.Name)))
+			loadSpinner := ui.NewConsoleSpinner(fmt.Sprintf("Summarizing folder: %s", folder.Name))
+			loadSpinner.Start()
 
 			lists, err := client.GetLists(folder.ID)
 			if err != nil {
-				fmt.Printf("\nError getting lists: %v\n", err)
+				loadSpinner.Stop()
+				fmt.Printf("  %s\n", ui.NoTasksStyle.Render(fmt.Sprintf("Error getting lists: %v", err)))
 				continue
 			}
 
@@ -105,16 +107,18 @@ var summarizeCmd = &cobra.Command{
 			}
 
 			if len(allFolderTasks) == 0 {
-				fmt.Println("Done.")
+				loadSpinner.Stop()
+				fmt.Println("  " + ui.FolderStyle.MarginTop(0).PaddingLeft(0).Render(fmt.Sprintf("Folder: %s", folder.Name)))
 				fmt.Println(ui.NoTasksStyle.PaddingLeft(6).Render("No active tasks found."))
 				continue
 			}
 
-			fmt.Println("Done.")
+			loadSpinner.Stop()
+			fmt.Println("  " + ui.FolderStyle.MarginTop(0).PaddingLeft(0).Render(fmt.Sprintf("Folder: %s", folder.Name)))
 
 			summary, err := summarizer.SummarizeTasks(folder.Name, allFolderTasks)
 			if err != nil {
-				fmt.Printf("      Error generating summary: %v\n", err)
+				fmt.Printf("      %s\n", ui.NoTasksStyle.Render(fmt.Sprintf("Error generating summary: %v", err)))
 				continue
 			}
 

@@ -5,15 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 )
 
 const APIURL = "https://api.clickup.com/api/v2/"
 
+type Member struct {
+	User User `json:"user"`
+}
+
 type Team struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Members []Member `json:"members"`
 }
 
 type TeamsResponse struct {
@@ -74,6 +80,8 @@ type Task struct {
 		Status string `json:"status"`
 	} `json:"status"`
 	Assignees   []User `json:"assignees"`
+	Creator     User   `json:"creator"`
+	DateCreated string `json:"date_created"` // Unix timestamp in milliseconds as string
 	DateUpdated string `json:"date_updated"` // Unix timestamp in milliseconds as string
 	TextContent string `json:"text_content"` // Task description
 }
@@ -113,36 +121,104 @@ func (c *Client) doRequest(method, url string, target interface{}) error {
 }
 
 func (c *Client) doRequestWithBody(method, url string, body io.Reader, target interface{}) error {
-	req, err := http.NewRequest(method, url, body)
+	var reqBody []byte
+	var err error
+	if body != nil {
+		reqBody, err = io.ReadAll(body)
+		if err != nil {
+			return err
+		}
+	}
+
+	slog.Info("API Request", "method", method, "url", url, "body", string(reqBody))
+
+	var bodyReader io.Reader
+	if len(reqBody) > 0 {
+		bodyReader = bytes.NewReader(reqBody)
+	}
+
+	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
+		slog.Error("Failed to create request", "error", err)
 		return err
 	}
 
 	req.Header.Add("Authorization", c.PAT)
-	if body != nil {
+	if bodyReader != nil {
 		req.Header.Add("Content-Type", "application/json")
 	}
 
+	start := time.Now()
 	resp, err := c.HTTPClient.Do(req)
+	duration := time.Since(start)
+
 	if err != nil {
+		slog.Error("API Request Failed", "error", err, "duration", duration)
 		return err
 	}
 	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		slog.Error("Failed to read response body", "error", err)
+		return err
+	}
+
+	slog.Info("API Response", 
+		"status", resp.StatusCode, 
+		"duration", duration, 
+		"body", string(respBody),
+	)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("API error: status %d", resp.StatusCode)
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
 	if err := json.Unmarshal(respBody, target); err != nil {
+		slog.Error("Failed to unmarshal response", "error", err, "body", string(respBody))
 		return err
 	}
 
 	return nil
+}
+
+type Activity struct {
+	ID     string `json:"id"`
+	User   User   `json:"user"`
+	Type   string `json:"type"`
+	Date   string `json:"date"` // Unix timestamp in milliseconds as string
+	TaskID string `json:"task_id"`
+	Source string `json:"source"`
+}
+
+type ActivityResponse struct {
+	History []Activity `json:"history"`
+}
+
+func (c *Client) GetRecentTasks(listID string, dateUpdatedGt int64) ([]Task, error) {
+	url := fmt.Sprintf("%slist/%s/task?archived=false&include_closed=true&date_updated_gt=%d", APIURL, listID, dateUpdatedGt)
+	var tasksResp TasksResponse
+	if err := c.doRequest("GET", url, &tasksResp); err != nil {
+		return nil, err
+	}
+	return tasksResp.Tasks, nil
+}
+
+func (c *Client) GetWorkspaceUsers(workspaceID string) ([]User, error) {
+	teams, err := c.GetTeams()
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range teams {
+		if t.ID == workspaceID {
+			var users []User
+			for _, m := range t.Members {
+				users = append(users, m.User)
+			}
+			return users, nil
+		}
+	}
+	return nil, fmt.Errorf("workspace %s not found", workspaceID)
 }
 
 func (c *Client) GetTeams() ([]Team, error) {
@@ -246,4 +322,29 @@ func (c *Client) CreateTaskComment(taskID string, commentText string) error {
 	}
 	var result map[string]interface{}
 	return c.doRequestWithBody("POST", url, bytes.NewReader(payload), &result)
+}
+
+func (c *Client) CreateTask(listID string, name string, description string, status string, assignees []int64) (Task, error) {
+	url := fmt.Sprintf("%slist/%s/task", APIURL, listID)
+	payload := map[string]interface{}{
+		"name": name,
+	}
+	if description != "" {
+		payload["description"] = description
+	}
+	if status != "" {
+		payload["status"] = status
+	}
+	if len(assignees) > 0 {
+		payload["assignees"] = assignees
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return Task{}, err
+	}
+	var task Task
+	if err := c.doRequestWithBody("POST", url, bytes.NewReader(body), &task); err != nil {
+		return Task{}, err
+	}
+	return task, nil
 }
