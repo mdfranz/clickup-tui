@@ -20,6 +20,7 @@ import (
 var (
 	sumAll  bool
 	sumMine bool
+	sumTeam bool
 )
 
 var summarizeCmd = &cobra.Command{
@@ -27,6 +28,10 @@ var summarizeCmd = &cobra.Command{
 	Short: "Generate an AI summary for each configured folder",
 	Long:  `Display a high-level AI summary of active tasks for each folder in your configured ClickUp workspace.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if sumTeam {
+			sumMine = false
+		}
+
 		cfg, err := config.LoadConfig()
 		if err != nil {
 			if config.IsNotExist(err) {
@@ -132,6 +137,7 @@ var summarizeCmd = &cobra.Command{
 
 func init() {
 	summarizeCmd.Flags().BoolVarP(&sumAll, "all", "a", false, "Include all open tasks (including backlog and scoping)")
+	summarizeCmd.Flags().BoolVar(&sumTeam, "team", false, "Include work for the entire team")
 	summarizeCmd.Flags().BoolVar(&sumMine, "mine", true, "Only include tasks assigned to you")
 	rootCmd.AddCommand(summarizeCmd)
 }
