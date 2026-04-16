@@ -4,9 +4,11 @@ A terminal user interface (TUI) for ClickUp, built with Go, Cobra, and Bubble Te
 
 ## Features
 
+- **Menu**: Interactive menu to quickly launch any command
 - **Setup**: Interactive wizard to configure your ClickUp workspace, space, and folders
 - **Tasks**: Display tasks from your configured folders with filtering and comments
 - **Browse**: Interactively browse tasks with detailed view
+- **New**: Create tasks in your saved folders
 - **Show**: Display current configuration
 - **Flexible Filtering**: Show active tasks or all open tasks, and filter by assignee (defaults to your tasks)
 - **Comment Display**: View recent comments for tasks
@@ -57,6 +59,14 @@ This will save your configuration to:
 - `~/.local/clickup-tui.toml` (legacy, for backwards compatibility)
 
 ## Usage
+
+### Interactive Menu
+
+Launch an interactive menu to select a command:
+
+```bash
+clickup-tui menu
+```
 
 ### Display Active Tasks
 
@@ -110,6 +120,14 @@ Navigate with:
 - Esc/q: Go back
 - Ctrl+C: Exit
 
+### Create a New Task
+
+Create a task in one of your saved folders and lists:
+
+```bash
+clickup-tui new
+```
+
 ### View Current Configuration
 
 Display your current setup:
@@ -152,9 +170,14 @@ make lint
 .
 ├── cmd/              # CLI commands
 │   ├── root.go       # Root command and version
+│   ├── menu.go       # Interactive launcher
 │   ├── setup.go      # Interactive setup
 │   ├── tasks.go      # Task display
 │   ├── browse.go     # Interactive browse
+│   ├── new.go        # Create tasks
+│   ├── standup.go    # Standup workflow
+│   └── config.go     # Config display
+
 │   └── config.go     # Config display
 ├── pkg/
 │   ├── clickup/      # ClickUp API client
