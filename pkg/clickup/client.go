@@ -83,6 +83,8 @@ type Task struct {
 	Creator     User   `json:"creator"`
 	DateCreated string `json:"date_created"` // Unix timestamp in milliseconds as string
 	DateUpdated string `json:"date_updated"` // Unix timestamp in milliseconds as string
+	DateDone    string `json:"date_done"`    // Unix timestamp in milliseconds as string
+	DateClosed  string `json:"date_closed"`  // Unix timestamp in milliseconds as string
 	TextContent string `json:"text_content"` // Task description
 }
 

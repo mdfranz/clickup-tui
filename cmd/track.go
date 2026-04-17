@@ -197,21 +197,11 @@ func (m trackModel) loadActivity(userID string) tea.Cmd {
 				}
 				
 				for _, task := range tasks {
-					// Check if task was created in the last 10 days by this user
-					dateCreated, _ := strconv.ParseInt(task.DateCreated, 10, 64)
-					if dateCreated >= dateFrom && task.Creator.ID.String() == userID {
-						activities = append(activities, clickup.Activity{
-							ID:     "create-" + task.ID,
-							User:   *userInfo,
-							Type:   "created task",
-							Date:   task.DateCreated,
-							TaskID: task.ID,
-							Source: task.Name,
-						})
-						taskDetails[task.ID] = task
-					}
+					taskDateCreated, _ := strconv.ParseInt(task.DateCreated, 10, 64)
+					taskDateUpdated, _ := strconv.ParseInt(task.DateUpdated, 10, 64)
+					taskDateDone, _ := strconv.ParseInt(task.DateDone, 10, 64)
+					taskDateClosed, _ := strconv.ParseInt(task.DateClosed, 10, 64)
 
-					// Check if user is an assignee and it was updated
 					isAssignee := false
 					for _, a := range task.Assignees {
 						if a.ID.String() == userID {
@@ -219,17 +209,55 @@ func (m trackModel) loadActivity(userID string) tea.Cmd {
 							break
 						}
 					}
-					
-					if isAssignee && dateCreated < dateFrom {
+
+					// 1. Check if created by user in window
+					if taskDateCreated >= dateFrom && task.Creator.ID.String() == userID {
 						activities = append(activities, clickup.Activity{
-							ID:     "update-" + task.ID,
+							ID:     "create-" + task.ID,
 							User:   *userInfo,
-							Type:   "updated task (assignee)",
-							Date:   task.DateUpdated,
+							Type:   fmt.Sprintf("created task [%s]", task.Status.Status),
+							Date:   task.DateCreated,
 							TaskID: task.ID,
 							Source: task.Name,
 						})
 						taskDetails[task.ID] = task
+					}
+
+					// 2. Check for state changes (completion/closure) or general updates by assignee
+					if isAssignee {
+						if taskDateDone >= dateFrom {
+							activities = append(activities, clickup.Activity{
+								ID:     "done-" + task.ID + "-" + task.DateDone,
+								User:   *userInfo,
+								Type:   fmt.Sprintf("completed task [%s]", task.Status.Status),
+								Date:   task.DateDone,
+								TaskID: task.ID,
+								Source: task.Name,
+							})
+							taskDetails[task.ID] = task
+						} else if taskDateClosed >= dateFrom {
+							activities = append(activities, clickup.Activity{
+								ID:     "closed-" + task.ID + "-" + task.DateClosed,
+								User:   *userInfo,
+								Type:   fmt.Sprintf("closed task [%s]", task.Status.Status),
+								Date:   task.DateClosed,
+								TaskID: task.ID,
+								Source: task.Name,
+							})
+							taskDetails[task.ID] = task
+						} else if taskDateUpdated >= dateFrom && taskDateUpdated > taskDateCreated {
+							// Only log general update if it wasn't a create/done/closed event we already handled
+							// Note: We don't have per-event history, so this is a heuristic
+							activities = append(activities, clickup.Activity{
+								ID:     "update-" + task.ID + "-" + task.DateUpdated,
+								User:   *userInfo,
+								Type:   fmt.Sprintf("updated task [%s]", task.Status.Status),
+								Date:   task.DateUpdated,
+								TaskID: task.ID,
+								Source: task.Name,
+							})
+							taskDetails[task.ID] = task
+						}
 					}
 
 					// 4. Fetch comments to check for user's comments
