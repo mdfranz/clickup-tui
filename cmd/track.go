@@ -48,7 +48,8 @@ var trackCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := clickup.NewClient(pat)
+		client, cleanup := newCachedClient(pat)
+		defer cleanup()
 
 		var summarizer *ai.Summarizer
 		if trackSummarize {
@@ -96,7 +97,7 @@ const (
 )
 
 type trackModel struct {
-	client     *clickup.Client
+	client     clickup.API
 	cfg        config.Config
 	summarizer *ai.Summarizer
 	userID     string
@@ -115,7 +116,7 @@ type trackModel struct {
 	height     int
 }
 
-func initialTrackModel(client *clickup.Client, cfg config.Config, summarizer *ai.Summarizer, userID string) trackModel {
+func initialTrackModel(client clickup.API, cfg config.Config, summarizer *ai.Summarizer, userID string) trackModel {
 	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	l.Title = "Select User to Track"
 

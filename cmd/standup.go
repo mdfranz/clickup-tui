@@ -47,7 +47,8 @@ var standupCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := clickup.NewClient(pat)
+		client, cleanup := newCachedClient(pat)
+		defer cleanup()
 
 		currentUser, err := client.GetUser()
 		if err != nil {
@@ -97,7 +98,7 @@ const (
 )
 
 type standupModel struct {
-	client   *clickup.Client
+	client   clickup.API
 	cfg      config.Config
 	userID   string
 	all      bool
@@ -135,7 +136,7 @@ type standupTasksLoaded []standupTask
 type standupStatusesLoaded []clickup.Status
 type standupUpdatePosted struct{}
 
-func initialStandupModel(client *clickup.Client, cfg config.Config, userID string, all bool, mine bool) standupModel {
+func initialStandupModel(client clickup.API, cfg config.Config, userID string, all bool, mine bool) standupModel {
 	return standupModel{
 		client:  client,
 		cfg:     cfg,

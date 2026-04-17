@@ -49,7 +49,8 @@ var summarizeCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := clickup.NewClient(pat)
+		client, cleanup := newCachedClient(pat)
+		defer cleanup()
 
 		summarizer, err := ai.NewSummarizer()
 		if err != nil {

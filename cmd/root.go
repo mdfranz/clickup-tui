@@ -23,6 +23,9 @@ func Execute() {
 	}
 }
 
+var noCache bool
+
 func init() {
 	rootCmd.Flags().BoolP("version", "v", false, "Print version and exit")
+	rootCmd.PersistentFlags().BoolVarP(&noCache, "refresh", "r", false, "Bypass cache and fetch fresh data from the API")
 }
