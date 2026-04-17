@@ -128,15 +128,15 @@ var tasksCmd = &cobra.Command{
 						if !foundTasks {
 							foundTasks = true
 						}
-						
+
 						// Sort tasks by date, newest first
 						util.SortTasksByDateDesc(filteredTasks)
-						
+
 						output.WriteString(ui.ListStyle.Render(fmt.Sprintf("List: %s", list.Name)) + "\n")
 						for _, task := range filteredTasks {
 							status := task.Status.Status
-							sColor := ui.StatusColors[strings.ToLower(status)]
-							if sColor == "" {
+							sColor, ok := ui.StatusColors[strings.ToLower(status)]
+							if !ok {
 								sColor = ui.ColorGray
 							}
 
@@ -155,7 +155,7 @@ var tasksCmd = &cobra.Command{
 							}
 
 							styledStatus := ui.StatusStyle.
-								Foreground(lipgloss.Color(sColor)).
+								Foreground(sColor).
 								Render("[" + status + "]")
 							styledName := ui.TaskNameStyle.Render(task.Name)
 							styledID := ui.IDStyle.Render("(" + task.ID + ")")
@@ -163,14 +163,19 @@ var tasksCmd = &cobra.Command{
 
 							output.WriteString(ui.TaskStyle.Render(fmt.Sprintf("%s %s %s %s %s", styledStatus, styledName, assigneesStr, styledID, styledDate)) + "\n")
 
-							if detailed {
+							if summarize {
 								fullTask, err := client.GetTask(task.ID)
 								if err == nil {
 									comments, _ := client.GetTaskComments(task.ID)
 									summary, err := summarizer.SummarizeTask(fullTask, comments)
 									if err == nil {
+										glamourStyle := "dark"
+										if !lipgloss.HasDarkBackground() {
+											glamourStyle = "light"
+										}
+
 										r, _ := glamour.NewTermRenderer(
-											glamour.WithStandardStyle("dark"),
+											glamour.WithStandardStyle(glamourStyle),
 											glamour.WithWordWrap(width-35),
 										)
 										out, _ := r.Render(summary)

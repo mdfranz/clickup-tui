@@ -343,8 +343,13 @@ func (m trackModel) generateDisplayContent() string {
 		b.WriteString("\n\n")
 		
 		// Render Markdown using glamour
+		glamourStyle := "dark"
+		if !lipgloss.HasDarkBackground() {
+			glamourStyle = "light"
+		}
+
 		r, _ := glamour.NewTermRenderer(
-			glamour.WithStandardStyle("dark"),
+			glamour.WithStandardStyle(glamourStyle),
 			glamour.WithWordWrap(width-10),
 		)
 

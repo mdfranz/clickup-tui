@@ -442,11 +442,11 @@ func (m browseModel) renderDetail() string {
 	b.WriteString(ui.HeaderStyle.Render(m.selectedTask.task.Name) + "\n")
 	
 	status := m.selectedTask.task.Status.Status
-	sColor := ui.StatusColors[strings.ToLower(status)]
-	if sColor == "" {
+	sColor, ok := ui.StatusColors[strings.ToLower(status)]
+	if !ok {
 		sColor = ui.ColorGray
 	}
-	statusDisplay := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(sColor)).Render(status)
+	statusDisplay := lipgloss.NewStyle().Bold(true).Foreground(sColor).Render(status)
 	b.WriteString(fmt.Sprintf("Status: %s\n", statusDisplay))
 	
 	b.WriteString(fmt.Sprintf("Folder: %s | List: %s\n", m.selectedTask.folderName, m.selectedTask.listName))

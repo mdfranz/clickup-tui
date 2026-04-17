@@ -531,7 +531,7 @@ func (m standupModel) viewSelect() string {
 
 	// Header row
 	prefixWidth := 7 // "> [x] "
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(ui.ColorGray)).Underline(true)
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ui.ColorGray).Underline(true)
 	header := fmt.Sprintf("%s%s  %s  %s  %s",
 		strings.Repeat(" ", prefixWidth),
 		headerStyle.Width(maxStatus).Render("Status"),
@@ -545,7 +545,7 @@ func (m standupModel) viewSelect() string {
 	statusCol := lipgloss.NewStyle().Bold(true).Width(maxStatus)
 	nameCol := lipgloss.NewStyle().Width(maxName)
 	dateCol := lipgloss.NewStyle().Width(maxDate)
-	folderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorDarkGray))
+	folderStyle := lipgloss.NewStyle().Foreground(ui.ColorDarkGray)
 
 	for i := start; i < end; i++ {
 		t := m.tasks[i]
@@ -559,16 +559,16 @@ func (m standupModel) viewSelect() string {
 		}
 
 		status := t.task.Status.Status
-		sColor := ui.StatusColors[strings.ToLower(status)]
-		if sColor == "" {
+		sColor, ok := ui.StatusColors[strings.ToLower(status)]
+		if !ok {
 			sColor = ui.ColorGray
 		}
 
 		line := fmt.Sprintf("%s%s %s  %s  %s  %s",
 			cursor, check,
-			statusCol.Foreground(lipgloss.Color(sColor)).Render("["+status+"]"),
+			statusCol.Foreground(sColor).Render("["+status+"]"),
 			nameCol.Render(t.task.Name),
-			dateCol.Foreground(lipgloss.Color(ui.ColorGray)).Render(format.FormatTaskDate(t.task.DateUpdated)),
+			dateCol.Foreground(ui.ColorGray).Render(format.FormatTaskDate(t.task.DateUpdated)),
 			folderStyle.Render(t.folderName+"/"+t.listName),
 		)
 		b.WriteString(line + "\n")
@@ -599,18 +599,18 @@ func (m standupModel) viewUpdate() string {
 
 	// Current status
 	currentStatus := task.task.Status.Status
-	sColor := ui.StatusColors[strings.ToLower(currentStatus)]
-	if sColor == "" {
+	sColor, ok := ui.StatusColors[strings.ToLower(currentStatus)]
+	if !ok {
 		sColor = ui.ColorGray
 	}
-	statusDisplay := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(sColor)).Render(currentStatus)
+	statusDisplay := lipgloss.NewStyle().Bold(true).Foreground(sColor).Render(currentStatus)
 
 	if m.newStatus != "" && strings.ToLower(m.newStatus) != strings.ToLower(currentStatus) {
-		newColor := ui.StatusColors[strings.ToLower(m.newStatus)]
-		if newColor == "" {
+		newColor, ok := ui.StatusColors[strings.ToLower(m.newStatus)]
+		if !ok {
 			newColor = ui.ColorGray
 		}
-		newDisplay := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(newColor)).Render(m.newStatus)
+		newDisplay := lipgloss.NewStyle().Bold(true).Foreground(newColor).Render(m.newStatus)
 		b.WriteString(fmt.Sprintf("Status: %s → %s\n", statusDisplay, newDisplay))
 	} else {
 		b.WriteString(fmt.Sprintf("Status: %s\n", statusDisplay))
@@ -647,11 +647,11 @@ func (m standupModel) viewStatusPicker() string {
 			cursor = "> "
 		}
 
-		sColor := ui.StatusColors[strings.ToLower(s.Status)]
-		if sColor == "" {
+		sColor, ok := ui.StatusColors[strings.ToLower(s.Status)]
+		if !ok {
 			sColor = ui.ColorGray
 		}
-		styled := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(sColor)).Render(s.Status)
+		styled := lipgloss.NewStyle().Bold(true).Foreground(sColor).Render(s.Status)
 
 		current := ""
 		if strings.ToLower(s.Status) == currentStatus {

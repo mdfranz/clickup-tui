@@ -13,6 +13,7 @@ import (
 	"clickup-tui/pkg/util"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -123,8 +124,13 @@ var summarizeCmd = &cobra.Command{
 			}
 
 			// Render Markdown using glamour
+			glamourStyle := "dark"
+			if !lipgloss.HasDarkBackground() {
+				glamourStyle = "light"
+			}
+
 			r, _ := glamour.NewTermRenderer(
-				glamour.WithStandardStyle("dark"),
+				glamour.WithStandardStyle(glamourStyle),
 				glamour.WithWordWrap(width-15),
 			)
 			out, _ := r.Render(summary)

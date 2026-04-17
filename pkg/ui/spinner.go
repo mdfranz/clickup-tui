@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	SpinnerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorPurple))
-	SpinnerTextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorGray))
+	SpinnerStyle     = lipgloss.NewStyle().Foreground(ColorPurple)
+	SpinnerTextStyle = lipgloss.NewStyle().Foreground(ColorGray)
 )
 
 func NewSpinnerModel() spinner.Model {

@@ -3,23 +3,24 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 // Color constants
-const (
-	ColorPurple   = "170"
-	ColorBlue     = "39"
-	ColorGray     = "245"
-	ColorDarkGray = "240"
-	ColorPink     = "211"
-	ColorGreen    = "42"
-	ColorOrange   = "214"
-	ColorIndigo   = "99"
+var (
+	ColorPurple   = lipgloss.AdaptiveColor{Light: "99", Dark: "170"}
+	ColorBlue     = lipgloss.AdaptiveColor{Light: "27", Dark: "39"}
+	ColorGray     = lipgloss.AdaptiveColor{Light: "241", Dark: "245"}
+	ColorDarkGray = lipgloss.AdaptiveColor{Light: "237", Dark: "240"}
+	ColorPink     = lipgloss.AdaptiveColor{Light: "161", Dark: "211"}
+	ColorGreen    = lipgloss.AdaptiveColor{Light: "28", Dark: "42"}
+	ColorOrange   = lipgloss.AdaptiveColor{Light: "166", Dark: "214"}
+	ColorIndigo   = lipgloss.AdaptiveColor{Light: "57", Dark: "99"}
+	ColorRed      = lipgloss.AdaptiveColor{Light: "160", Dark: "196"}
 )
 
 // Status colors mapping
-var StatusColors = map[string]string{
+var StatusColors = map[string]lipgloss.AdaptiveColor{
 	"in progress": ColorGreen,
 	"scoping":     ColorOrange,
 	"in review":   ColorIndigo,
-	"blocked":     "196",
+	"blocked":     ColorRed,
 	"backlog":     ColorDarkGray,
 }
 
@@ -27,19 +28,19 @@ var StatusColors = map[string]string{
 var (
 	HeaderStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color(ColorPurple)).
+		Foreground(ColorPurple).
 		MarginTop(1).
 		Underline(true)
 
 	FolderStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color(ColorBlue)).
+		Foreground(ColorBlue).
 		MarginTop(1).
 		PaddingLeft(2)
 
 	ListStyle = lipgloss.NewStyle().
 		Italic(true).
-		Foreground(lipgloss.Color(ColorGray)).
+		Foreground(ColorGray).
 		PaddingLeft(4)
 
 	TaskStyle = lipgloss.NewStyle().
@@ -53,26 +54,26 @@ var (
 		Width(15)
 
 	IDStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorDarkGray))
+		Foreground(ColorDarkGray)
 
 	AssigneeStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorPink))
+		Foreground(ColorPink)
 
 	DateStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorGray))
+		Foreground(ColorGray)
 
 	CommentBaseStyle = lipgloss.NewStyle().
 		Italic(true).
-		Foreground(lipgloss.Color("242"))
+		Foreground(lipgloss.AdaptiveColor{Light: "239", Dark: "242"})
 
 	SummaryStyle = lipgloss.NewStyle().
 		Italic(true).
-		Foreground(lipgloss.Color(ColorBlue)).
+		Foreground(ColorBlue).
 		PaddingLeft(2)
 
 	NoTasksStyle = lipgloss.NewStyle().
 		Italic(true).
-		Foreground(lipgloss.Color(ColorDarkGray)).
+		Foreground(ColorDarkGray).
 		PaddingLeft(4)
 
 	DocStyle = lipgloss.NewStyle().Margin(1, 2)
