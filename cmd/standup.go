@@ -218,16 +218,15 @@ func (m standupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case standupUpdatePosted:
-		m.state = standupUpdate
 		m.updateIdx++
 		if m.updateIdx >= len(m.selected) {
 			m.state = standupDone
 			if os.Getenv("CLICKUP_TUI_MENU") != "1" {
-				m.quitting = true
 				return m, tea.Quit
 			}
 			return m, nil
 		}
+		m.state = standupUpdate
 		return m, m.initTaskUpdate()
 
 	case errMsg:

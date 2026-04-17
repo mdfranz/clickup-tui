@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -77,6 +78,7 @@ type taskItem struct {
 	task        clickup.Task
 	folderName  string
 	listName    string
+	listID      string
 	workspaceID string
 }
 
@@ -99,28 +101,34 @@ const (
 	stateList browseState = iota
 	stateDetail
 	stateComment
+	stateStatus
 )
 
 type commentPostedMsg struct{}
+type statusUpdatedMsg struct {
+	status string
+}
 
 type browseModel struct {
-	client       *clickup.Client
-	cfg          config.Config
-	userID       string
-	all          bool
-	mine         bool
-	list         list.Model
-	viewport     viewport.Model
-	textarea     textarea.Model
-	state        browseState
-	selectedTask *taskItem
-	comments     []clickup.Comment
-	loading      bool
-	posting      bool
-	spinner      spinner.Model
-	err          error
-	width        int
-	height       int
+	client            *clickup.Client
+	cfg               config.Config
+	userID            string
+	all               bool
+	mine              bool
+	list              list.Model
+	statusList        list.Model
+	viewport          viewport.Model
+	textarea          textarea.Model
+	state             browseState
+	selectedTask      *taskItem
+	comments          []clickup.Comment
+	availableStatuses []clickup.Status
+	loading           bool
+	posting           bool
+	spinner           spinner.Model
+	err               error
+	width             int
+	height            int
 }
 
 func initialBrowseModel(client *clickup.Client, cfg config.Config, userID string, all bool, mine bool) browseModel {
@@ -134,20 +142,27 @@ func initialBrowseModel(client *clickup.Client, cfg config.Config, userID string
 	}
 	l.Title = title
 
+	sl := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	sl.Title = "Select Status"
+	sl.SetShowHelp(false)
+	sl.SetFilteringEnabled(false)
+
 	return browseModel{
-		client:  client,
-		cfg:     cfg,
-		userID:  userID,
-		all:     all,
-		mine:    mine,
-		list:    l,
-		state:   stateList,
-		loading: true,
-		spinner: ui.NewSpinnerModel(),
+		client:     client,
+		cfg:        cfg,
+		userID:     userID,
+		all:        all,
+		mine:       mine,
+		list:       l,
+		statusList: sl,
+		state:      stateList,
+		loading:    true,
+		spinner:    ui.NewSpinnerModel(),
 	}
 }
 
 type commentsMsg []clickup.Comment
+type statusesMsg []clickup.Status
 
 func (m browseModel) Init() tea.Cmd {
 	loadCmd := func() tea.Msg {
@@ -164,7 +179,12 @@ func (m browseModel) Init() tea.Cmd {
 				}
 				for _, task := range tasks {
 					if filter.ShouldIncludeTask(task, m.userID, m.all, m.mine) {
-						allItems = append(allItems, taskItem{task: task, folderName: folder.Name, listName: listObj.Name})
+						allItems = append(allItems, taskItem{
+							task:       task,
+							folderName: folder.Name,
+							listName:   listObj.Name,
+							listID:     listObj.ID,
+						})
 					}
 				}
 			}
@@ -181,6 +201,14 @@ func (m browseModel) Init() tea.Cmd {
 	}
 	return tea.Batch(loadCmd, m.spinner.Tick)
 }
+
+type taskStatusItem struct {
+	status clickup.Status
+}
+
+func (i taskStatusItem) Title() string       { return i.status.Status }
+func (i taskStatusItem) Description() string { return "" }
+func (i taskStatusItem) FilterValue() string { return i.status.Status }
 
 func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -212,6 +240,30 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Let textarea handle all other keys
 			m.textarea, cmd = m.textarea.Update(msg)
+			return m, cmd
+		}
+
+		if m.state == stateStatus {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "q":
+				m.state = stateDetail
+				return m, nil
+			case "enter":
+				if it, ok := m.statusList.SelectedItem().(taskStatusItem); ok {
+					m.posting = true
+					taskID := m.selectedTask.task.ID
+					status := it.status.Status
+					return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
+						if err := m.client.UpdateTaskStatus(taskID, status); err != nil {
+							return errMsg(err)
+						}
+						return statusUpdatedMsg{status: status}
+					})
+				}
+			}
+			m.statusList, cmd = m.statusList.Update(msg)
 			return m, cmd
 		}
 
@@ -248,6 +300,18 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateComment
 				return m, textarea.Blink
 			}
+		case "s":
+			if m.state == stateDetail && m.selectedTask != nil {
+				m.state = stateStatus
+				m.loading = true
+				return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
+					list, err := m.client.GetList(m.selectedTask.listID)
+					if err != nil {
+						return errMsg(err)
+					}
+					return statusesMsg(list.Statuses)
+				})
+			}
 		case "esc":
 			if m.state == stateDetail {
 				m.state = stateList
@@ -274,7 +338,8 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case commentPostedMsg:		m.posting = false
+	case commentPostedMsg:
+		m.posting = false
 		m.state = stateDetail
 		m.loading = true
 		taskID := m.selectedTask.task.ID
@@ -285,6 +350,22 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return commentsMsg(comments)
 		})
+
+	case statusUpdatedMsg:
+		m.posting = false
+		m.state = stateDetail
+		m.selectedTask.task.Status.Status = msg.status
+		m.viewport.SetContent(m.renderDetail())
+		// Also update in the main list
+		items := m.list.Items()
+		for i, item := range items {
+			if ti, ok := item.(taskItem); ok && ti.task.ID == m.selectedTask.task.ID {
+				ti.task.Status.Status = msg.status
+				items[i] = ti
+				break
+			}
+		}
+		m.list.SetItems(items)
 
 	case browseTasksMsg:
 		m.loading = false
@@ -307,6 +388,15 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.comments = msg
 		m.viewport.SetContent(m.renderDetail())
 
+	case statusesMsg:
+		m.loading = false
+		m.availableStatuses = msg
+		items := make([]list.Item, len(msg))
+		for i, v := range msg {
+			items[i] = taskStatusItem{status: v}
+		}
+		m.statusList.SetItems(items)
+
 	case spinner.TickMsg:
 		if m.loading || m.posting {
 			m.spinner, cmd = m.spinner.Update(msg)
@@ -319,6 +409,7 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		h, v := ui.DocStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
+		m.statusList.SetSize(msg.Width-h, msg.Height-v)
 		m.viewport = viewport.New(msg.Width-h, msg.Height-v-10)
 		if m.state == stateDetail {
 			m.viewport.SetContent(m.renderDetail())
@@ -332,7 +423,7 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.state == stateList {
 		m.list, cmd = m.list.Update(msg)
 		cmds = append(cmds, cmd)
-	} else {
+	} else if m.state == stateDetail {
 		m.viewport, cmd = m.viewport.Update(msg)
 		cmds = append(cmds, cmd)
 	}
@@ -349,7 +440,15 @@ func (m browseModel) renderDetail() string {
 
 	// Header
 	b.WriteString(ui.HeaderStyle.Render(m.selectedTask.task.Name) + "\n")
-	b.WriteString(fmt.Sprintf("Status: %s\n", m.selectedTask.task.Status.Status))
+	
+	status := m.selectedTask.task.Status.Status
+	sColor := ui.StatusColors[strings.ToLower(status)]
+	if sColor == "" {
+		sColor = ui.ColorGray
+	}
+	statusDisplay := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(sColor)).Render(status)
+	b.WriteString(fmt.Sprintf("Status: %s\n", statusDisplay))
+	
 	b.WriteString(fmt.Sprintf("Folder: %s | List: %s\n", m.selectedTask.folderName, m.selectedTask.listName))
 
 	assignees := []string{}
@@ -358,7 +457,7 @@ func (m browseModel) renderDetail() string {
 	}
 	// Note: assignee filtering would use a.ID.String() == currentUser.ID.String()
 	if len(assignees) > 0 {
-		b.WriteString(fmt.Sprintf("Assignees: %s\n", strings.Join(assignees, ", ")))
+		b.WriteString(fmt.Sprintf("Assignees: %s\n", ui.AssigneeStyle.Render(strings.Join(assignees, ", "))))
 	}
 	b.WriteString("\n" + strings.Repeat("-", m.width-10) + "\n\n")
 
@@ -383,7 +482,7 @@ func (m browseModel) renderDetail() string {
 		}
 	}
 
-	b.WriteString("\n\n(c: add comment | space: next task | Esc/q: go back)")
+	b.WriteString("\n\n(c: add comment | s: change status | space: next task | Esc/q: go back)")
 	return b.String()
 }
 
@@ -401,6 +500,15 @@ func (m browseModel) View() string {
 			b.WriteString("\n\n(Ctrl+S: submit | Esc: cancel)")
 		}
 		return ui.DocStyle.Render(b.String())
+	}
+	if m.state == stateStatus {
+		if m.loading {
+			return ui.DocStyle.Render(ui.SpinnerView("Loading statuses...", m.spinner))
+		}
+		if m.posting {
+			return ui.DocStyle.Render(ui.SpinnerView("Updating status...", m.spinner))
+		}
+		return ui.DocStyle.Render(m.statusList.View())
 	}
 	if m.state == stateList && m.loading && len(m.list.Items()) == 0 {
 		return ui.DocStyle.Render(ui.SpinnerView("Loading tasks...", m.spinner))
