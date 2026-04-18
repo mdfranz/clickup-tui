@@ -59,6 +59,32 @@ This will save your configuration to:
 - `~/.config/clickup-tui/config.toml` (default)
 - `~/.local/clickup-tui.toml` (legacy, for backwards compatibility)
 
+### Logging Configuration
+
+Control logging verbosity with environment variables:
+
+```bash
+# Default (minimal logging, response bodies redacted)
+clickup-tui tasks
+
+# Log full API response bodies for debugging
+LOG_RESPONSE_BODIES=1 clickup-tui tasks
+
+# Log sensitive data (emails, user IDs, etc.)
+LOG_SENSITIVE_DATA=1 clickup-tui tasks
+
+# Combined verbose logging
+LOG_RESPONSE_BODIES=1 LOG_SENSITIVE_DATA=1 clickup-tui tasks
+
+# Store logs locally instead of cache directory
+LOG_LOCAL=1 clickup-tui tasks
+```
+
+Logs are written to:
+- `app.log` (if `LOG_LOCAL=1`)
+- `$XDG_CACHE_HOME/clickup-tui/app.log` (default)
+- `~/.cache/clickup-tui/app.log` (if XDG_CACHE_HOME not set)
+
 ## Usage
 
 ### Interactive Menu

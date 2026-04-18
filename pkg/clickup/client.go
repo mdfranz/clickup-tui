@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/mdfranz/clickup-tui/pkg/logger"
 )
 
 const APIURL = "https://api.clickup.com/api/v2/"
@@ -132,7 +134,7 @@ func (c *Client) doRequestWithBody(method, url string, body io.Reader, target in
 		}
 	}
 
-	slog.Info("API Request", "method", method, "url", url, "body", string(reqBody))
+	slog.Info("API Request", "method", method, "url", url, "body", logger.TruncateBody(string(reqBody)))
 
 	var bodyReader io.Reader
 	if len(reqBody) > 0 {
@@ -166,10 +168,10 @@ func (c *Client) doRequestWithBody(method, url string, body io.Reader, target in
 		return err
 	}
 
-	slog.Info("API Response", 
-		"status", resp.StatusCode, 
-		"duration", duration, 
-		"body", string(respBody),
+	slog.Info("API Response",
+		"status", resp.StatusCode,
+		"duration", duration,
+		"body", logger.TruncateBody(string(respBody)),
 	)
 
 	if resp.StatusCode != http.StatusOK {
@@ -177,7 +179,7 @@ func (c *Client) doRequestWithBody(method, url string, body io.Reader, target in
 	}
 
 	if err := json.Unmarshal(respBody, target); err != nil {
-		slog.Error("Failed to unmarshal response", "error", err, "body", string(respBody))
+		slog.Error("Failed to unmarshal response", "error", err, "body", logger.TruncateBody(string(respBody)))
 		return err
 	}
 
