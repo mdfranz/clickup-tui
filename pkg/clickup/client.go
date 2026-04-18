@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mdfranz/clickup-tui/pkg/logger"
+	"clickup-tui/pkg/logger"
 )
 
 const APIURL = "https://api.clickup.com/api/v2/"

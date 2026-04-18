@@ -137,6 +137,7 @@ type newModel struct {
 	selectedList     clickup.List
 	selectedStatus   clickup.Status
 	selectedAssignee *clickup.User
+	targetListID     string
 	nameInput        textinput.Model
 	descInput        textarea.Model
 	loading          bool
@@ -238,6 +239,24 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("no lists found in folder %s", m.selectedFolder.Name)
 			m.step = stepFolderSelect
 			return m, nil
+		}
+
+		// Check for target list ID first
+		if m.targetListID != "" {
+			for _, l := range msg {
+				if l.ID == m.targetListID {
+					m.selectedList = l
+					m.loading = true
+					m.step = stepStatusSelect
+					return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
+						list, err := m.client.GetList(l.ID)
+						if err != nil {
+							return errMsg(err)
+						}
+						return listMsg(list)
+					})
+				}
+			}
 		}
 
 		// Auto-select "List" if it exists, or if there's only one list
