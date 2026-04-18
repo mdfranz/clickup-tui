@@ -12,20 +12,24 @@ type FolderConfig struct {
 	Name string `toml:"name"`
 }
 
-type Config struct {
-	WorkspaceID   string         `toml:"workspace_id"`
-	WorkspaceName string         `toml:"workspace_name"`
-	SpaceID       string         `toml:"space_id"`
-	SpaceName     string         `toml:"space_name"`
-	Folders       []FolderConfig `toml:"folders"`
+type SpaceConfig struct {
+	ID      string         `toml:"id"`
+	Name    string         `toml:"name"`
+	Folders []FolderConfig `toml:"folders"`
 }
 
-// getConfigPath returns the path to the config file, respecting XDG Base Directory spec.
+type Config struct {
+	WorkspaceID   string        `toml:"workspace_id"`
+	WorkspaceName string        `toml:"workspace_name"`
+	Spaces        []SpaceConfig `toml:"spaces"`
+}
+
+// ConfigPath returns the path to the config file, respecting XDG Base Directory spec.
 // Priority:
 //   1. $XDG_CONFIG_HOME/clickup-tui/config.toml
 //   2. ~/.config/clickup-tui/config.toml
 //   3. ~/.local/clickup-tui.toml (legacy)
-func getConfigPath() (string, error) {
+func ConfigPath() (string, error) {
 	// Check XDG_CONFIG_HOME
 	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
 		return filepath.Join(xdgConfig, "clickup-tui", "config.toml"), nil
@@ -41,7 +45,7 @@ func getConfigPath() (string, error) {
 }
 
 // getLegacyConfigPath returns the legacy config path for backwards compatibility
-func getLegacyConfigPath() (string, error) {
+func GetLegacyConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -50,7 +54,7 @@ func getLegacyConfigPath() (string, error) {
 }
 
 func SaveConfig(cfg Config) error {
-	path, err := getConfigPath()
+	path, err := ConfigPath()
 	if err != nil {
 		return err
 	}
@@ -75,7 +79,7 @@ func LoadConfig() (Config, error) {
 	var cfg Config
 
 	// Try new XDG path first
-	path, err := getConfigPath()
+	path, err := ConfigPath()
 	if err != nil {
 		return cfg, err
 	}
@@ -87,7 +91,7 @@ func LoadConfig() (Config, error) {
 	}
 
 	// Fall back to legacy path
-	legacyPath, err := getLegacyConfigPath()
+	legacyPath, err := GetLegacyConfigPath()
 	if err != nil {
 		return cfg, err
 	}

@@ -52,7 +52,8 @@ var tasksCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := clickup.NewClient(pat)
+		client, cleanup := newCachedClient(pat)
+		defer cleanup()
 
 		var summarizer *ai.Summarizer
 		if summarize {

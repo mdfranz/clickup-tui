@@ -26,7 +26,8 @@ var setupCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := clickup.NewClient(pat)
+		client, cleanup := newCachedClient(pat)
+		defer cleanup()
 
 		m := initialModel(client)
 		
@@ -134,7 +135,7 @@ func (d itemDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 }
 
 type model struct {
-	client            *clickup.Client
+	client            clickup.API
 	step              step
 	list              list.Model
 	selectedWorkspace clickup.Team
@@ -145,7 +146,7 @@ type model struct {
 	spinner           spinner.Model
 }
 
-func initialModel(client *clickup.Client) model {
+func initialModel(client clickup.API) model {
 	delegate := list.NewDefaultDelegate()
 	l := list.New([]list.Item{}, delegate, 0, 0)
 	l.Title = "Loading workspaces..."

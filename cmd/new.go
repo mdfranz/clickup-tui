@@ -43,7 +43,8 @@ var newCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := clickup.NewClient(pat)
+		client, cleanup := newCachedClient(pat)
+		defer cleanup()
 
 		currentUser, err := client.GetUser()
 		if err != nil {
@@ -124,7 +125,7 @@ type usersMsg []clickup.User
 type taskCreatedMsg clickup.Task
 
 type newModel struct {
-	client           *clickup.Client
+	client           clickup.API
 	cfg              config.Config
 	currentUser      clickup.User
 	step             newStep
@@ -147,7 +148,7 @@ type newModel struct {
 	height           int
 }
 
-func initialNewModel(client *clickup.Client, cfg config.Config, currentUser clickup.User) newModel {
+func initialNewModel(client clickup.API, cfg config.Config, currentUser clickup.User) newModel {
 	folders := make([]list.Item, len(cfg.Folders))
 	for i, f := range cfg.Folders {
 		folders[i] = folderItem{folder: f}

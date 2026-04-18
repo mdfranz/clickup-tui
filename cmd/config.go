@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"clickup-tui/pkg/clickup"
 	"clickup-tui/pkg/config"
 	"clickup-tui/pkg/util"
 
@@ -35,7 +34,8 @@ var showCmd = &cobra.Command{
 
 		pat, err := util.GetClickUpPAT()
 		if err == nil {
-			client := clickup.NewClient(pat)
+			client, cleanup := newCachedClient(pat)
+			defer cleanup()
 			user, err := client.GetUser()
 			if err == nil {
 				fmt.Printf("\nUser Details:\n")

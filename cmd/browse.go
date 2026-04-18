@@ -51,7 +51,8 @@ var browseCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		client := clickup.NewClient(pat)
+		client, cleanup := newCachedClient(pat)
+		defer cleanup()
 
 		currentUser, err := client.GetUser()
 		if err != nil {
@@ -110,7 +111,7 @@ type statusUpdatedMsg struct {
 }
 
 type browseModel struct {
-	client            *clickup.Client
+	client            clickup.API
 	cfg               config.Config
 	userID            string
 	all               bool
@@ -131,7 +132,7 @@ type browseModel struct {
 	height            int
 }
 
-func initialBrowseModel(client *clickup.Client, cfg config.Config, userID string, all bool, mine bool) browseModel {
+func initialBrowseModel(client clickup.API, cfg config.Config, userID string, all bool, mine bool) browseModel {
 	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	title := "Active Tasks"
 	if all {
