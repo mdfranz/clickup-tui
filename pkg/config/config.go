@@ -12,16 +12,12 @@ type FolderConfig struct {
 	Name string `toml:"name"`
 }
 
-type SpaceConfig struct {
-	ID      string         `toml:"id"`
-	Name    string         `toml:"name"`
-	Folders []FolderConfig `toml:"folders"`
-}
-
 type Config struct {
-	WorkspaceID   string        `toml:"workspace_id"`
-	WorkspaceName string        `toml:"workspace_name"`
-	Spaces        []SpaceConfig `toml:"spaces"`
+	WorkspaceID   string         `toml:"workspace_id"`
+	WorkspaceName string         `toml:"workspace_name"`
+	SpaceID       string         `toml:"space_id"`
+	SpaceName     string         `toml:"space_name"`
+	Folders       []FolderConfig `toml:"folders"`
 }
 
 // ConfigPath returns the path to the config file, respecting XDG Base Directory spec.
@@ -44,7 +40,7 @@ func ConfigPath() (string, error) {
 	return filepath.Join(home, ".config", "clickup-tui", "config.toml"), nil
 }
 
-// getLegacyConfigPath returns the legacy config path for backwards compatibility
+// GetLegacyConfigPath returns the legacy config path for backwards compatibility
 func GetLegacyConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

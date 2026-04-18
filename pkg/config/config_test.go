@@ -40,7 +40,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	}
 
 	// Verify file was created
-	path, _ := getConfigPath()
+	path, _ := ConfigPath()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Fatalf("Config file was not created at %s", path)
 	}
@@ -58,15 +58,14 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	if loadedCfg.WorkspaceName != testCfg.WorkspaceName {
 		t.Errorf("WorkspaceName mismatch: got %q, want %q", loadedCfg.WorkspaceName, testCfg.WorkspaceName)
 	}
-	if len(loadedCfg.Spaces) != len(testCfg.Spaces) {
-		t.Errorf("Spaces count mismatch: got %d, want %d", len(loadedCfg.Spaces), len(testCfg.Spaces))
-	} else if len(loadedCfg.Spaces) > 0 {
-		if loadedCfg.Spaces[0].ID != testCfg.Spaces[0].ID {
-			t.Errorf("SpaceID mismatch: got %q, want %q", loadedCfg.Spaces[0].ID, testCfg.Spaces[0].ID)
-		}
-		if len(loadedCfg.Spaces[0].Folders) != len(testCfg.Spaces[0].Folders) {
-			t.Errorf("Folders count mismatch: got %d, want %d", len(loadedCfg.Spaces[0].Folders), len(testCfg.Spaces[0].Folders))
-		}
+	if loadedCfg.SpaceID != testCfg.SpaceID {
+		t.Errorf("SpaceID mismatch: got %q, want %q", loadedCfg.SpaceID, testCfg.SpaceID)
+	}
+	if loadedCfg.SpaceName != testCfg.SpaceName {
+		t.Errorf("SpaceName mismatch: got %q, want %q", loadedCfg.SpaceName, testCfg.SpaceName)
+	}
+	if len(loadedCfg.Folders) != len(testCfg.Folders) {
+		t.Errorf("Folders count mismatch: got %d, want %d", len(loadedCfg.Folders), len(testCfg.Folders))
 	}
 }
 
@@ -113,9 +112,9 @@ func TestXDGConfigPath(t *testing.T) {
 		}
 	}()
 
-	path, err := getConfigPath()
+	path, err := ConfigPath()
 	if err != nil {
-		t.Fatalf("getConfigPath() failed: %v", err)
+		t.Fatalf("ConfigPath() failed: %v", err)
 	}
 
 	expectedPath := filepath.Join(tmpDir, "clickup-tui", "config.toml")
