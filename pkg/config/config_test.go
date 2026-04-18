@@ -58,11 +58,15 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	if loadedCfg.WorkspaceName != testCfg.WorkspaceName {
 		t.Errorf("WorkspaceName mismatch: got %q, want %q", loadedCfg.WorkspaceName, testCfg.WorkspaceName)
 	}
-	if loadedCfg.SpaceID != testCfg.SpaceID {
-		t.Errorf("SpaceID mismatch: got %q, want %q", loadedCfg.SpaceID, testCfg.SpaceID)
-	}
-	if len(loadedCfg.Folders) != len(testCfg.Folders) {
-		t.Errorf("Folders count mismatch: got %d, want %d", len(loadedCfg.Folders), len(testCfg.Folders))
+	if len(loadedCfg.Spaces) != len(testCfg.Spaces) {
+		t.Errorf("Spaces count mismatch: got %d, want %d", len(loadedCfg.Spaces), len(testCfg.Spaces))
+	} else if len(loadedCfg.Spaces) > 0 {
+		if loadedCfg.Spaces[0].ID != testCfg.Spaces[0].ID {
+			t.Errorf("SpaceID mismatch: got %q, want %q", loadedCfg.Spaces[0].ID, testCfg.Spaces[0].ID)
+		}
+		if len(loadedCfg.Spaces[0].Folders) != len(testCfg.Spaces[0].Folders) {
+			t.Errorf("Folders count mismatch: got %d, want %d", len(loadedCfg.Spaces[0].Folders), len(testCfg.Spaces[0].Folders))
+		}
 	}
 }
 
