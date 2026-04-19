@@ -107,22 +107,52 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 
-	status := i.task.Status.Status
+	status := fmt.Sprintf("[%s]", i.task.Status.Status)
 	name := i.task.Name
-	formattedDate := format.FormatTaskDate(i.task.DateUpdated)
+	formattedDate := fmt.Sprintf("(%s)", format.FormatTaskDate(i.task.DateUpdated))
 
-	sColor, ok := ui.StatusColors[strings.ToLower(status)]
+	sColor, ok := ui.StatusColors[strings.ToLower(i.task.Status.Status)]
 	if !ok {
 		sColor = ui.ColorGray
 	}
-	statusDisplay := lipgloss.NewStyle().Bold(true).Foreground(sColor).Render(fmt.Sprintf("[%s]", status))
 
-	content := fmt.Sprintf("%s %s (%s)", statusDisplay, name, formattedDate)
+	// Calculate widths to prevent wrapping and align columns
+	statusWidth := 15
+	dateWidth := 10
+	cursorWidth := 2
+	
+	// Max width for the name before we need to truncate
+	availableNameWidth := m.Width() - statusWidth - dateWidth - cursorWidth - 4 // extra padding
+	if availableNameWidth < 5 {
+		availableNameWidth = 5
+	}
+
+	displayName := name
+	if len(displayName) > availableNameWidth {
+		displayName = displayName[:availableNameWidth-3] + "..."
+	}
 
 	if index == m.Index() {
-		fmt.Fprint(w, d.Styles.SelectedTitle.Render(content))
+		bgColor := ui.SelectedTaskStyle.GetBackground()
+		fgColor := ui.SelectedTaskStyle.GetForeground()
+		baseStyle := lipgloss.NewStyle().Bold(true).Background(bgColor).Foreground(fgColor)
+
+		cursor := baseStyle.Render("▶ ")
+		statusDisplay := baseStyle.Copy().Foreground(sColor).Width(statusWidth).Render(status)
+		nameDisplay := baseStyle.Copy().Width(availableNameWidth + 1).Render(displayName)
+		dateDisplay := baseStyle.Copy().Foreground(ui.ColorBlue).Width(dateWidth).Align(lipgloss.Right).Render(formattedDate)
+
+		// Join and pad to full width to ensure background stretches perfectly
+		content := lipgloss.JoinHorizontal(lipgloss.Left, cursor, statusDisplay, nameDisplay, dateDisplay)
+		fmt.Fprint(w, baseStyle.Copy().Width(m.Width()).Render(content))
 	} else {
-		fmt.Fprint(w, d.Styles.NormalTitle.Render(content))
+		cursor := "  "
+		statusDisplay := lipgloss.NewStyle().Bold(true).Foreground(sColor).Width(statusWidth).Render(status)
+		nameDisplay := lipgloss.NewStyle().Width(availableNameWidth + 1).Render(displayName)
+		dateDisplay := lipgloss.NewStyle().Foreground(ui.ColorBlue).Width(dateWidth).Align(lipgloss.Right).Render(formattedDate)
+
+		content := lipgloss.JoinHorizontal(lipgloss.Left, cursor, statusDisplay, nameDisplay, dateDisplay)
+		fmt.Fprint(w, ui.TaskItemStyle.Copy().PaddingLeft(0).Render(content))
 	}
 }
 
@@ -537,10 +567,10 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Ratio 1/3 for list, 2/3 for details
-		listWidth := msg.Width / 3
-		if listWidth < 35 {
-			listWidth = 35
+		// Ratio ~2/5 for list, 3/5 for details (increased from 1/3)
+		listWidth := (msg.Width * 2) / 5
+		if listWidth < 45 {
+			listWidth = 45
 		}
 		
 		// Space for the vertical separator and padding
@@ -642,6 +672,19 @@ func (m browseModel) renderDetail() string {
 	if width < 0 {
 		width = 0
 	}
+	
+	// Description
+	desc := strings.TrimSpace(m.selectedTask.task.TextContent)
+	if desc != "" {
+		b.WriteString("\nDescription:\n")
+		wrapWidth := width - 2
+		if wrapWidth < 20 {
+			wrapWidth = 20
+		}
+		wrappedDesc := lipgloss.NewStyle().Width(wrapWidth).PaddingLeft(2).Render(desc)
+		b.WriteString(wrappedDesc + "\n")
+	}
+
 	b.WriteString("\n" + strings.Repeat("─", width) + "\n\n")
 
 	// Comments
@@ -651,7 +694,10 @@ func (m browseModel) renderDetail() string {
 		b.WriteString("No comments found.")
 	} else {
 		b.WriteString("Recent Comments:\n\n")
-		for _, c := range m.comments {
+		for i, c := range m.comments {
+			if i > 0 {
+				b.WriteString("\n") // Add an extra empty line before subsequent comments
+			}
 			date := format.FormatCommentDate(c.Date)
 			b.WriteString(fmt.Sprintf("%s %s:\n", ui.DateStyle.Render(date), ui.AssigneeStyle.Render(c.User.Username)))
 

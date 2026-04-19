@@ -76,5 +76,14 @@ var (
 		Foreground(ColorDarkGray).
 		PaddingLeft(4)
 
+	SelectedTaskStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorPurple).
+		Background(lipgloss.AdaptiveColor{Light: "252", Dark: "235"}).
+		PaddingLeft(2)
+
+	TaskItemStyle = lipgloss.NewStyle().
+		PaddingLeft(4)
+
 	DocStyle = lipgloss.NewStyle().Margin(1, 2)
 )
