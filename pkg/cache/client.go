@@ -185,20 +185,49 @@ func (c *CachedClient) GetWorkspaceUsers(workspaceID string) ([]clickup.User, er
 
 // --- Task data (incremental updates) ---
 
-func (c *CachedClient) GetTasks(listID string) ([]clickup.Task, error) {
+func (c *CachedClient) GetTasks(listID string, includeClosed bool) ([]clickup.Task, error) {
 	cached := c.store.Tasks[listID]
+
+	// If we need closed tasks but cache doesn't have them, we must do a full fetch
+	// (unless it's an incremental update, but GetRecentTasks with include_closed=true
+	// will only return RECENTLY updated closed tasks, not ALL closed tasks).
+	// For simplicity, if includeClosed=true and cache.IncludesClosed=false, we force a full fetch.
+	if !c.noCache && cached != nil && includeClosed && !cached.IncludesClosed {
+		slog.Debug("Cache upgrade (fetching closed tasks)", "method", "GetTasks", "listID", listID)
+		tasks, err := c.inner.GetTasks(listID, true)
+		if err == nil {
+			hwm := int64(0)
+			for _, t := range tasks {
+				if du := parseUnixMs(t.DateUpdated); du > hwm {
+					hwm = du
+				}
+			}
+			c.store.Tasks[listID] = &TaskCache{
+				Tasks:          tasks,
+				FetchedAt:      time.Now(),
+				MaxDateUpdated: hwm,
+				IncludesClosed: true,
+			}
+			c.dirty = true
+			return tasks, nil
+		}
+		// On error, fall back to what we have
+		return filterActiveTasks(cached.Tasks), nil
+	}
 
 	if !c.noCache && cached != nil && time.Since(cached.FetchedAt) < TTLTasksFull {
 		// Incremental update: fetch only tasks updated since high-water mark
 		recent, err := c.inner.GetRecentTasks(listID, cached.MaxDateUpdated)
 		if err != nil {
 			slog.Warn("Incremental update failed, returning stale cache", "method", "GetTasks", "error", err)
+			if !includeClosed {
+				return filterActiveTasks(cached.Tasks), nil
+			}
 			return cached.Tasks, nil
 		}
 		if len(recent) > 0 {
 			merged := mergeTasks(cached.Tasks, recent)
-			// Filter out closed/completed tasks to match GetTasks behavior
-			merged = filterActiveTasks(merged)
+			// We store everything in the cache now, filtering happens at the UI level
 			hwm := cached.MaxDateUpdated
 			for _, t := range recent {
 				if du := parseUnixMs(t.DateUpdated); du > hwm {
@@ -209,23 +238,38 @@ func (c *CachedClient) GetTasks(listID string) ([]clickup.Task, error) {
 				Tasks:          merged,
 				FetchedAt:      time.Now(),
 				MaxDateUpdated: hwm,
+				IncludesClosed: cached.IncludesClosed, // stays the same, or could we have gained closed tasks?
 			}
+			// Actually, GetRecentTasks always has include_closed=true, so we might have gained closed tasks.
+			// But it doesn't guarantee we have ALL closed tasks if we started with only active ones.
+
 			c.dirty = true
 			slog.Debug("Cache incremental update", "method", "GetTasks", "listID", listID, "updated", len(recent))
+			
+			if !includeClosed {
+				return filterActiveTasks(merged), nil
+			}
 			return merged, nil
 		}
 		// No updates — refresh the TTL timer
 		cached.FetchedAt = time.Now()
 		c.dirty = true
 		slog.Debug("Cache hit (no new updates)", "method", "GetTasks", "listID", listID)
+		
+		if !includeClosed {
+			return filterActiveTasks(cached.Tasks), nil
+		}
 		return cached.Tasks, nil
 	}
 
 	// Full fetch
-	tasks, err := c.inner.GetTasks(listID)
+	tasks, err := c.inner.GetTasks(listID, includeClosed)
 	if err != nil {
 		if cached != nil {
 			slog.Warn("API error, returning stale cache", "method", "GetTasks", "error", err)
+			if !includeClosed {
+				return filterActiveTasks(cached.Tasks), nil
+			}
 			return cached.Tasks, nil
 		}
 		return nil, err
@@ -240,9 +284,14 @@ func (c *CachedClient) GetTasks(listID string) ([]clickup.Task, error) {
 		Tasks:          tasks,
 		FetchedAt:      time.Now(),
 		MaxDateUpdated: hwm,
+		IncludesClosed: includeClosed,
 	}
 	c.dirty = true
 	slog.Debug("Cache miss (full fetch)", "method", "GetTasks", "listID", listID, "count", len(tasks))
+	
+	if !includeClosed {
+		return filterActiveTasks(tasks), nil
+	}
 	return tasks, nil
 }
 

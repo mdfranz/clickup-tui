@@ -90,7 +90,7 @@ var summarizeCmd = &cobra.Command{
 
 			var allFolderTasks []clickup.Task
 			for _, list := range lists {
-				tasks, err := client.GetTasks(list.ID)
+				tasks, err := client.GetTasks(list.ID, sumAll)
 				if err != nil {
 					continue
 				}
@@ -147,7 +147,7 @@ var summarizeCmd = &cobra.Command{
 }
 
 func init() {
-	summarizeCmd.Flags().BoolVarP(&sumAll, "all", "a", false, "Include all open tasks (including backlog and scoping)")
+	summarizeCmd.Flags().BoolVarP(&sumAll, "all", "a", false, "Include all open tasks (including backlog)")
 	summarizeCmd.Flags().BoolVar(&sumTeam, "team", false, "Include work for the entire team")
 	summarizeCmd.Flags().BoolVar(&sumMine, "mine", true, "Only include tasks assigned to you")
 	rootCmd.AddCommand(summarizeCmd)

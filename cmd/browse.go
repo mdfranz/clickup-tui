@@ -29,13 +29,17 @@ type browseTasksMsg []taskItem
 var (
 	browseAll  bool
 	browseMine bool
+	browseTeam bool
 )
 
 var browseCmd = &cobra.Command{
 	Use:   "browse",
 	Short: "Browse tasks in an interactive TUI",
-	Long:  `Interactively browse tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Browse all open tasks (includes backlog and scoping)\n  --mine: Only browse tasks assigned to you (default true)`,
+	Long:  `Interactively browse tasks from your configured ClickUp workspace.\n\nFlags:\n  --all, -a: Browse all open tasks (includes backlog and scoping)\n  --team: Show tasks for the whole team\n  --mine: Only browse tasks assigned to you (default true)`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if browseTeam {
+			browseMine = false
+		}
 		cfg, err := config.LoadConfig()
 		if err != nil {
 			if config.IsNotExist(err) {
@@ -243,11 +247,14 @@ func (m browseModel) Init() tea.Cmd {
 				continue
 			}
 			for _, listObj := range lists {
-				tasks, err := m.client.GetTasks(listObj.ID)
+				tasks, err := m.client.GetTasks(listObj.ID, m.all)
 				if err != nil {
 					continue
 				}
 				for _, task := range tasks {
+					if task.ParentID != "" {
+						continue
+					}
 					if filter.ShouldIncludeTask(task, m.currentUser.ID.String(), m.all, m.mine) {
 						allItems = append(allItems, taskItem{
 							task:       task,
@@ -493,11 +500,14 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedTask = &it
 				m.loading = true
 				m.viewport.SetContent(m.renderDetail())
+
 				return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
 					comments, err := m.client.GetTaskComments(it.task.ID)
 					if err != nil {
 						return errMsg(err)
 					}
+					util.SortCommentsByDateDesc(comments)
+
 					return commentsMsg(comments)
 				})
 			}
@@ -621,11 +631,14 @@ func (m browseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedTask = &it
 				m.loading = true
 				m.viewport.SetContent(m.renderDetail())
+
 				cmds = append(cmds, tea.Batch(m.spinner.Tick, func() tea.Msg {
 					comments, err := m.client.GetTaskComments(it.task.ID)
 					if err != nil {
 						return errMsg(err)
 					}
+					util.SortCommentsByDateDesc(comments)
+
 					return commentsMsg(comments)
 				}))
 			}
@@ -785,7 +798,8 @@ func (m browseModel) View() string {
 }
 
 func init() {
-	browseCmd.Flags().BoolVarP(&browseAll, "all", "a", false, "Browse all open tasks (including backlog and scoping)")
+	browseCmd.Flags().BoolVarP(&browseAll, "all", "a", false, "Browse all open tasks (including backlog)")
+	browseCmd.Flags().BoolVar(&browseTeam, "team", false, "Show tasks for the whole team")
 	browseCmd.Flags().BoolVar(&browseMine, "mine", true, "Only browse tasks assigned to you")
 	rootCmd.AddCommand(browseCmd)
 }

@@ -47,7 +47,9 @@ type TaskCache struct {
 	Tasks          []clickup.Task `json:"tasks"`
 	FetchedAt      time.Time      `json:"fetched_at"`
 	MaxDateUpdated int64          `json:"max_date_updated"`
+	IncludesClosed bool           `json:"includes_closed"`
 }
+
 
 func newStore() *Store {
 	return &Store{

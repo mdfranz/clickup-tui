@@ -13,7 +13,6 @@ import (
 	"clickup-tui/pkg/ui"
 	"clickup-tui/pkg/util"
 
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -25,6 +24,7 @@ var (
 	summarize bool
 	mine      bool
 	team      bool
+	showID    bool
 )
 
 var tasksCmd = &cobra.Command{
@@ -111,30 +111,63 @@ var tasksCmd = &cobra.Command{
 
 			foundTasks := false
 			for _, list := range lists {
-				tasks, err := client.GetTasks(list.ID)
+				tasks, err := client.GetTasks(list.ID, showAll)
 				if err != nil {
 					output.WriteString(ui.NoTasksStyle.Render(fmt.Sprintf("Error getting tasks for list %s: %v", list.Name, err)) + "\n")
 					continue
 				}
 
 				if len(tasks) > 0 {
-					var filteredTasks []clickup.Task
-					for _, task := range tasks {
-						if filter.ShouldIncludeTask(task, currentUser.ID.String(), showAll, mine) {
-							filteredTasks = append(filteredTasks, task)
+					// Map tasks by ID for easy lookup
+					taskMap := make(map[string]clickup.Task)
+					for _, t := range tasks {
+						taskMap[t.ID] = t
+					}
+
+					// Group subtasks by parent for easier lookup
+					subtasksByParent := make(map[string][]clickup.Task)
+					for _, t := range tasks {
+						if t.ParentID != "" {
+							subtasksByParent[t.ParentID] = append(subtasksByParent[t.ParentID], t)
 						}
 					}
 
-					if len(filteredTasks) > 0 {
+					// Identify top-level tasks and filtered tasks
+					var topLevelTasks []clickup.Task
+					for _, task := range tasks {
+						_, hasParent := taskMap[task.ParentID]
+						if task.ParentID == "" || !hasParent {
+							if filter.ShouldIncludeTask(task, currentUser.ID.String(), showAll, mine) {
+								topLevelTasks = append(topLevelTasks, task)
+							} else {
+								// If top-level task is filtered out, check if any of its subtasks should be included
+								hasVisibleSubtask := false
+								for _, st := range subtasksByParent[task.ID] {
+									if filter.ShouldIncludeTask(st, currentUser.ID.String(), showAll, mine) {
+										hasVisibleSubtask = true
+										break
+									}
+								}
+								if hasVisibleSubtask {
+									topLevelTasks = append(topLevelTasks, task)
+								}
+							}
+						}
+					}
+
+					if len(topLevelTasks) > 0 {
 						if !foundTasks {
 							foundTasks = true
 						}
 
-						// Sort tasks by date, newest first
-						util.SortTasksByDateDesc(filteredTasks)
+						// Sort top-level tasks by date, newest first
+						util.SortTasksByDateDesc(topLevelTasks)
 
 						output.WriteString(ui.ListStyle.Render(fmt.Sprintf("List: %s", list.Name)) + "\n")
-						for _, task := range filteredTasks {
+
+						// Recursive function to render task and its subtasks
+						var renderTask func(t clickup.Task, depth int)
+						renderTask = func(task clickup.Task, depth int) {
 							status := task.Status.Status
 							sColor, ok := ui.StatusColors[strings.ToLower(status)]
 							if !ok {
@@ -143,11 +176,15 @@ var tasksCmd = &cobra.Command{
 
 							formattedDate := format.FormatTaskDate(task.DateUpdated)
 
-							// Format assignees (excluding current user)
+							// Format assignees
 							var otherAssignees []string
 							for _, a := range task.Assignees {
 								if a.ID.String() != currentUser.ID.String() {
-									otherAssignees = append(otherAssignees, a.Username)
+									displayName := a.Username
+									if showID {
+										displayName = fmt.Sprintf("%s (ID: %s)", a.Username, a.ID.String())
+									}
+									otherAssignees = append(otherAssignees, displayName)
 								}
 							}
 							assigneesStr := ""
@@ -159,30 +196,40 @@ var tasksCmd = &cobra.Command{
 								Foreground(sColor).
 								Render("[" + status + "]")
 							styledName := ui.TaskNameStyle.Render(task.Name)
-							styledID := ui.IDStyle.Render("(" + task.ID + ")")
 							styledDate := ui.DateStyle.Render(formattedDate)
 
-							output.WriteString(ui.TaskStyle.Render(fmt.Sprintf("%s %s %s %s %s", styledStatus, styledName, assigneesStr, styledID, styledDate)) + "\n")
+							if depth > 0 {
+								subtaskLine := fmt.Sprintf("%s%s (%s)%s", strings.Repeat(" ", 16), task.Name, formattedDate, assigneesStr)
+								output.WriteString(ui.TaskStyle.Render(ui.DateStyle.Render(subtaskLine)) + "\n")
+							} else {
+								output.WriteString(ui.TaskStyle.Render(fmt.Sprintf("%s %s (%s)%s", styledStatus, styledName, styledDate, assigneesStr)) + "\n")
+							}
 
 							if summarize {
 								fullTask, err := client.GetTask(task.ID)
 								if err == nil {
 									comments, _ := client.GetTaskComments(task.ID)
+									// Also include subtask comments in summary
+									for _, st := range subtasksByParent[task.ID] {
+										stComments, _ := client.GetTaskComments(st.ID)
+										for _, sc := range stComments {
+											sc.CommentText = fmt.Sprintf("[%s] %s", st.Name, sc.CommentText)
+											comments = append(comments, sc)
+										}
+									}
+									util.SortCommentsByDateDesc(comments)
+
 									summary, err := summarizer.SummarizeTask(fullTask, comments)
 									if err == nil {
-										glamourStyle := "dark"
-										if !lipgloss.HasDarkBackground() {
-											glamourStyle = "light"
+										indent := 22
+										summaryWidth := width - indent
+										if summaryWidth < 40 {
+											summaryWidth = 40
 										}
-
-										r, _ := glamour.NewTermRenderer(
-											glamour.WithStandardStyle(glamourStyle),
-											glamour.WithWordWrap(width-35),
-										)
-										out, _ := r.Render(summary)
-										lines := strings.Split(strings.TrimSpace(out), "\n")
+										wrapped := lipgloss.NewStyle().Width(summaryWidth).Render(strings.TrimSpace(summary))
+										lines := strings.Split(wrapped, "\n")
 										for _, line := range lines {
-											output.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat(" ", 22), ui.SummaryStyle.Render(line)))
+											output.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat(" ", indent), ui.SummaryStyle.Render(line)))
 										}
 									}
 								}
@@ -190,55 +237,83 @@ var tasksCmd = &cobra.Command{
 
 							if detailed {
 								comments, err := client.GetTaskComments(task.ID)
-								if err == nil && len(comments) > 0 {
-									limit := 3
-									if len(comments) < limit {
-										limit = len(comments)
+								if err == nil {
+									// Also get comments for subtasks
+									for _, st := range subtasksByParent[task.ID] {
+										stComments, _ := client.GetTaskComments(st.ID)
+										for _, sc := range stComments {
+											sc.CommentText = fmt.Sprintf("[%s] %s", st.Name, sc.CommentText)
+											comments = append(comments, sc)
+										}
 									}
-									for i := 0; i < limit; i++ {
-										comment := comments[i]
-										commentDate := format.FormatTaskDate(comment.Date)
 
-										prefix := "├"
-										if i == limit-1 {
-											prefix = "└"
+									if len(comments) > 0 {
+										util.SortCommentsByDateDesc(comments)
+
+										limit := 3
+										if len(comments) < limit {
+											limit = len(comments)
 										}
+										for i := 0; i < limit; i++ {
+											comment := comments[i]
+											commentDate := format.FormatTaskDate(comment.Date)
 
-										// Base indentation for the comment block
-										blockIndent := 22
-										headerText := fmt.Sprintf("%s %s %s: ", prefix, ui.DateStyle.Render(commentDate), comment.User.Username)
-										// Header width without colors
-										headerWidth := lipgloss.Width(headerText)
+											prefix := "├"
+											if i == limit-1 {
+												prefix = "└"
+											}
 
-										contentWidth := width - blockIndent - headerWidth
-										if contentWidth < 20 {
-											contentWidth = 20
-										}
+											// Base indentation for the comment block
+											blockIndent := 22
+											headerText := fmt.Sprintf("%s %s %s: ", prefix, ui.DateStyle.Render(commentDate), comment.User.Username)
+											// Header width without colors
+											headerWidth := lipgloss.Width(headerText)
 
-										commentText := strings.TrimSpace(comment.CommentText)
+											contentWidth := width - blockIndent - headerWidth
+											if contentWidth < 20 {
+												contentWidth = 20
+											}
 
-										// Use lipgloss to wrap the text
-										wrapped := lipgloss.NewStyle().Width(contentWidth).Render(commentText)
-										lines := strings.Split(wrapped, "\n")
+											commentText := strings.TrimSpace(comment.CommentText)
 
-										// Render first line with header
-										output.WriteString(fmt.Sprintf("%s%s%s\n", strings.Repeat(" ", blockIndent), ui.CommentBaseStyle.Render(headerText), ui.CommentBaseStyle.Render(lines[0])))
+											// Use lipgloss to wrap the text
+											wrapped := lipgloss.NewStyle().Width(contentWidth).Render(commentText)
+											lines := strings.Split(wrapped, "\n")
 
-										// Render subsequent lines with indentation
-										indent := strings.Repeat(" ", blockIndent+headerWidth)
-										for j := 1; j < len(lines); j++ {
-											line := strings.TrimSpace(lines[j])
-											if line != "" {
-												output.WriteString(fmt.Sprintf("%s%s\n", indent, ui.CommentBaseStyle.Render(line)))
+											// Render first line with header
+											output.WriteString(fmt.Sprintf("%s%s%s\n", strings.Repeat(" ", blockIndent), ui.CommentBaseStyle.Render(headerText), ui.CommentBaseStyle.Render(lines[0])))
+
+											// Render subsequent lines with indentation
+											indentStr := strings.Repeat(" ", blockIndent+headerWidth)
+											for j := 1; j < len(lines); j++ {
+												line := strings.TrimSpace(lines[j])
+												if line != "" {
+													output.WriteString(fmt.Sprintf("%s%s\n", indentStr, ui.CommentBaseStyle.Render(line)))
+												}
 											}
 										}
 									}
 								}
 							}
+
+							// Render subtasks
+							for _, st := range subtasksByParent[task.ID] {
+								// Only show subtasks if they match filter OR if showAll is true
+								if showAll || filter.ShouldIncludeTask(st, currentUser.ID.String(), showAll, mine) {
+									renderTask(st, depth+1)
+								}
+							}
+						}
+
+						for _, task := range topLevelTasks {
+							renderTask(task, 0)
+							output.WriteString("\n")
 						}
 					}
 				}
 			}
+
+
 
 			if !foundTasks {
 				msg := "No active tasks found."
@@ -254,10 +329,11 @@ var tasksCmd = &cobra.Command{
 }
 
 func init() {
-	tasksCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all open tasks (including backlog and scoping)")
+	tasksCmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all open tasks (including backlog)")
 	tasksCmd.Flags().BoolVarP(&detailed, "detailed", "d", false, "Show the last 3 comments for each task")
 	tasksCmd.Flags().BoolVarP(&summarize, "summarize", "s", false, "Generate an AI summary of each task")
 	tasksCmd.Flags().BoolVar(&team, "team", false, "Show tasks for the whole team")
 	tasksCmd.Flags().BoolVar(&mine, "mine", true, "Only show tasks assigned to you")
+	tasksCmd.Flags().BoolVar(&showID, "id", false, "Show user IDs and emails next to assignees")
 	rootCmd.AddCommand(tasksCmd)
 }

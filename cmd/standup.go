@@ -157,11 +157,14 @@ func (m standupModel) Init() tea.Cmd {
 				continue
 			}
 			for _, listObj := range lists {
-				apiTasks, err := m.client.GetTasks(listObj.ID)
+				apiTasks, err := m.client.GetTasks(listObj.ID, m.all)
 				if err != nil {
 					continue
 				}
 				for _, task := range apiTasks {
+					if task.ParentID != "" {
+						continue
+					}
 					if filter.ShouldIncludeTask(task, m.userID, m.all, m.mine) {
 						tasks = append(tasks, standupTask{
 							task:       task,
@@ -667,7 +670,7 @@ func (m standupModel) viewStatusPicker() string {
 }
 
 func init() {
-	standupCmd.Flags().BoolVarP(&standupAll, "all", "a", false, "Include all open tasks (including backlog and scoping)")
+	standupCmd.Flags().BoolVarP(&standupAll, "all", "a", false, "Include all open tasks (including backlog)")
 	standupCmd.Flags().BoolVar(&standupMine, "mine", true, "Only show tasks assigned to you")
 	rootCmd.AddCommand(standupCmd)
 }

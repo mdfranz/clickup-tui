@@ -16,12 +16,14 @@ func TestShouldIncludeTask_Active(t *testing.T) {
 		// Active statuses
 		{"in progress - active", "in progress", false, true},
 		{"in review - active", "in review", false, true},
+		{"blocked - active", "blocked", false, true},
 		{"In Progress - case insensitive", "In Progress", false, true},
 		{"IN REVIEW - case insensitive", "IN REVIEW", false, true},
+		{"Scoping - case insensitive", "Scoping", false, true},
 
 		// Non-active statuses (excluded when showAll=false)
 		{"backlog - not shown", "backlog", false, false},
-		{"scoping - not shown", "scoping", false, false},
+		{"scoping - active", "scoping", false, true},
 		{"todo - not shown", "todo", false, false},
 		{"done - not shown", "done", false, false},
 

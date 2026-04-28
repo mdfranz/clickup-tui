@@ -66,6 +66,10 @@ var (
 		Italic(true).
 		Foreground(lipgloss.AdaptiveColor{Light: "239", Dark: "242"})
 
+	SubtaskIndicatorStyle = lipgloss.NewStyle().
+		Foreground(ColorGray).
+		Bold(true)
+
 	SummaryStyle = lipgloss.NewStyle().
 		Italic(true).
 		Foreground(ColorBlue).

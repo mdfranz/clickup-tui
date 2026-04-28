@@ -25,7 +25,8 @@ import (
 )
 
 var (
-	trackSummarize bool
+	trackSummarize   bool
+	trackRawActivity bool
 )
 
 var trackCmd = &cobra.Command{
@@ -66,13 +67,13 @@ var trackCmd = &cobra.Command{
 		}
 
 		m := initialTrackModel(client, cfg, summarizer, userID)
-		
+
 		var opts []tea.ProgramOption
 		if os.Getenv("CLICKUP_TUI_MENU") == "1" {
 			opts = append(opts, tea.WithAltScreen())
 			opts = append(opts, tea.WithMouseCellMotion())
 		}
-		
+
 		p := tea.NewProgram(m, opts...)
 
 		finalModel, err := p.Run()
@@ -80,7 +81,7 @@ var trackCmd = &cobra.Command{
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
-		
+
 		finalTrackModel := finalModel.(trackModel)
 		if os.Getenv("CLICKUP_TUI_MENU") != "1" && finalTrackModel.step == trackStepDisplay {
 			fmt.Println(finalTrackModel.generateDisplayContent())
@@ -164,12 +165,12 @@ func (m trackModel) loadActivity(userID string) tea.Cmd {
 	return func() tea.Msg {
 		// Last 10 days
 		dateFrom := time.Now().AddDate(0, 0, -10).UnixNano() / int64(time.Millisecond)
-		
+
 		var activities []clickup.Activity
 		var taskDetails = make(map[string]clickup.Task)
 		var taskComments = make(map[string][]clickup.Comment)
 		var userInfo *clickup.User
-		
+
 		// 1. Fetch user info to populate the activity records
 		users, _ := m.client.GetWorkspaceUsers(m.cfg.WorkspaceID)
 		for _, u := range users {
@@ -178,7 +179,7 @@ func (m trackModel) loadActivity(userID string) tea.Cmd {
 				break
 			}
 		}
-		
+
 		if userInfo == nil {
 			return errMsg(fmt.Errorf("user %s not found", userID))
 		}
@@ -189,14 +190,14 @@ func (m trackModel) loadActivity(userID string) tea.Cmd {
 			if err != nil {
 				continue
 			}
-			
+
 			for _, listObj := range lists {
 				// 3. Get tasks updated in the last 10 days
 				tasks, err := m.client.GetRecentTasks(listObj.ID, dateFrom)
 				if err != nil {
 					continue
 				}
-				
+
 				for _, task := range tasks {
 					taskDateCreated, _ := strconv.ParseInt(task.DateCreated, 10, 64)
 					taskDateUpdated, _ := strconv.ParseInt(task.DateUpdated, 10, 64)
@@ -277,6 +278,7 @@ func (m trackModel) loadActivity(userID string) tea.Cmd {
 									Date:   comment.Date,
 									TaskID: task.ID,
 									Source: task.Name,
+									Detail: comment.CommentText,
 								})
 								taskDetails[task.ID] = task
 							}
@@ -292,7 +294,6 @@ func (m trackModel) loadActivity(userID string) tea.Cmd {
 			timeJ, _ := strconv.ParseInt(activities[j].Date, 10, 64)
 			return timeI > timeJ
 		})
-
 
 		var summaries []string
 		if m.summarizer != nil && len(activities) > 0 {
@@ -331,18 +332,18 @@ func (m trackModel) generateDisplayContent() string {
 	if width <= 0 {
 		width = 80
 	}
-	
+
 	var b strings.Builder
 	title := "Activity for the last 10 days"
 	if m.user != nil {
 		title = fmt.Sprintf("Activity for last 10 days for (%s: %s)", m.user.Username, m.user.ID.String())
 	}
 	b.WriteString(ui.HeaderStyle.Render(title) + "\n\n")
-	
+
 	if len(m.summaries) > 0 {
 		b.WriteString(ui.HeaderStyle.Render("AI Daily Summary"))
 		b.WriteString("\n\n")
-		
+
 		// Render Markdown using glamour
 		glamourStyle := "dark"
 		if !lipgloss.HasDarkBackground() {
@@ -363,27 +364,31 @@ func (m trackModel) generateDisplayContent() string {
 			}
 			b.WriteString("\n\n")
 		}
-		b.WriteString(ui.HeaderStyle.Render("Raw Activity Log"))
-		b.WriteString("\n\n")
 	}
 
 	if len(m.activities) == 0 {
 		b.WriteString("No activity found in the last 10 days.")
-	} else {
+	} else if len(m.summaries) == 0 || trackRawActivity {
+		if len(m.summaries) > 0 {
+			b.WriteString(ui.HeaderStyle.Render("Raw Activity Log"))
+			b.WriteString("\n\n")
+		}
 		// Activity wrap style
 		activityWrapStyle := lipgloss.NewStyle().Width(width - 6)
-		
+
 		for _, a := range m.activities {
 			date := format.FormatCommentDate(a.Date)
 			activityLine := fmt.Sprintf("%s %s: %s", ui.DateStyle.Render(date), ui.AssigneeStyle.Render(a.User.Username), a.Type)
 			if a.Source != "" {
 				activityLine += fmt.Sprintf(" (%s)", a.Source)
 			}
+			if a.Detail != "" {
+				activityLine += fmt.Sprintf("\n      └ %s", strings.TrimSpace(a.Detail))
+			}
 			b.WriteString(activityWrapStyle.Render(activityLine))
 			b.WriteString("\n")
 		}
 	}
-	
 	return b.String()
 }
 
@@ -397,9 +402,9 @@ func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		
+
 		headerHeight := 3 // for the "(q: quit | esc: back to users)" + margins
-		
+
 		if !m.ready {
 			m.viewport = viewport.New(msg.Width, msg.Height-headerHeight)
 			m.ready = true
@@ -410,11 +415,11 @@ func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		h, v := ui.DocStyle.GetFrameSize()
 		m.userList.SetSize(msg.Width-h, msg.Height-v)
-		
+
 		if m.step == trackStepDisplay {
 			m.viewport.SetContent(ui.DocStyle.Width(m.width).Render(m.generateDisplayContent()))
 		}
-		
+
 		return m, nil
 
 	case spinner.TickMsg:
@@ -437,12 +442,12 @@ func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.summaries = msg.summaries
 		m.step = trackStepDisplay
 		m.loading = false
-		
+
 		if os.Getenv("CLICKUP_TUI_MENU") != "1" {
 			m.quitting = true
 			return m, tea.Quit
 		}
-		
+
 		if m.ready {
 			m.viewport.SetContent(ui.DocStyle.Width(m.width).Render(m.generateDisplayContent()))
 			m.viewport.GotoTop()
@@ -491,7 +496,7 @@ func (m trackModel) View() string {
 	if m.err != nil {
 		return ui.DocStyle.Render(fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err))
 	}
-	
+
 	if m.quitting {
 		return ""
 	}
@@ -513,5 +518,6 @@ func (m trackModel) View() string {
 
 func init() {
 	trackCmd.Flags().BoolVarP(&trackSummarize, "summarize", "s", false, "Generate an AI summary of user activity")
+	trackCmd.Flags().BoolVarP(&trackRawActivity, "raw", "c", false, "Show raw activity log even if summarizing")
 	rootCmd.AddCommand(trackCmd)
 }

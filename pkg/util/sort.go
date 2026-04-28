@@ -15,3 +15,12 @@ func SortTasksByDateDesc(tasks []clickup.Task) {
 		return timeI > timeJ // Descending
 	})
 }
+
+// SortCommentsByDateDesc sorts a slice of comments in place, by Date descending (newest first)
+func SortCommentsByDateDesc(comments []clickup.Comment) {
+	sort.Slice(comments, func(i, j int) bool {
+		timeI, _ := strconv.ParseInt(comments[i].Date, 10, 64)
+		timeJ, _ := strconv.ParseInt(comments[j].Date, 10, 64)
+		return timeI > timeJ // Descending
+	})
+}

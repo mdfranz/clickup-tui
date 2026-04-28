@@ -76,7 +76,7 @@ func (n *noopClient) GetSpaces(string) ([]clickup.Space, error)          { retur
 func (n *noopClient) GetFolders(string) ([]clickup.Folder, error)        { return nil, nil }
 func (n *noopClient) GetLists(string) ([]clickup.List, error)            { return nil, nil }
 func (n *noopClient) GetList(string) (clickup.List, error)               { return clickup.List{}, nil }
-func (n *noopClient) GetTasks(string) ([]clickup.Task, error)            { return nil, nil }
+func (n *noopClient) GetTasks(string, bool) ([]clickup.Task, error)       { return nil, nil }
 func (n *noopClient) GetRecentTasks(string, int64) ([]clickup.Task, error) { return nil, nil }
 func (n *noopClient) GetTask(string) (clickup.Task, error)               { return clickup.Task{}, nil }
 func (n *noopClient) GetTaskComments(string) ([]clickup.Comment, error)  { return nil, nil }
