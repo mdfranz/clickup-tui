@@ -431,7 +431,8 @@ func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case trackUsersMsg:
 		items := make([]list.Item, len(msg))
 		for i, u := range msg {
-			items[i] = assigneeItem{user: u}
+			uCopy := u
+			items[i] = assigneeItem{user: &uCopy}
 		}
 		m.userList.SetItems(items)
 		return m, nil
@@ -466,7 +467,7 @@ func (m trackModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.step {
 		case trackStepUserSelect:
 			if msg.String() == "enter" {
-				if it, ok := m.userList.SelectedItem().(assigneeItem); ok {
+				if it, ok := m.userList.SelectedItem().(assigneeItem); ok && it.user != nil {
 					m.userID = it.user.ID.String()
 					m.step = trackStepLoading
 					m.loading = true

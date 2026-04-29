@@ -81,6 +81,7 @@ const (
 	stepStatusSelect
 	stepNameInput
 	stepDescriptionInput
+	stepAssigneePrompt
 	stepAssigneeSelect
 	stepConfirm
 	stepCreating
@@ -112,12 +113,27 @@ func (i statusItem) Description() string { return "Status" }
 func (i statusItem) FilterValue() string { return i.status.Status }
 
 type assigneeItem struct {
-	user clickup.User
+	user *clickup.User
 }
 
-func (i assigneeItem) Title() string       { return i.user.Username }
-func (i assigneeItem) Description() string { return fmt.Sprintf("%s (ID: %s)", i.user.Email, i.user.ID.String()) }
-func (i assigneeItem) FilterValue() string { return i.user.Username + " " + i.user.ID.String() }
+func (i assigneeItem) Title() string {
+	if i.user == nil {
+		return "Unassigned"
+	}
+	return i.user.Username
+}
+func (i assigneeItem) Description() string {
+	if i.user == nil {
+		return "No one is assigned to this task"
+	}
+	return fmt.Sprintf("%s (ID: %s)", i.user.Email, i.user.ID.String())
+}
+func (i assigneeItem) FilterValue() string {
+	if i.user == nil {
+		return "unassigned"
+	}
+	return i.user.Username + " " + i.user.ID.String()
+}
 
 type listsMsg []clickup.List
 type listMsg clickup.List
@@ -220,14 +236,11 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case usersMsg:
 		m.loading = false
-		if len(msg) == 0 {
-			m.err = fmt.Errorf("no users found in workspace %s", m.cfg.WorkspaceName)
-			m.step = stepConfirm
-			return m, nil
-		}
-		items := make([]list.Item, len(msg))
+		items := make([]list.Item, len(msg)+1)
+		items[0] = assigneeItem{user: nil} // Unassigned
 		for i, u := range msg {
-			items[i] = assigneeItem{user: u}
+			uCopy := u
+			items[i+1] = assigneeItem{user: &uCopy}
 		}
 		m.assigneeList.SetItems(items)
 		m.step = stepAssigneeSelect
@@ -406,15 +419,36 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nameInput.Focus()
 				return m, nil
 			case "ctrl+s":
+				m.step = stepAssigneePrompt
+				return m, nil
+			}
+
+		case stepAssigneePrompt:
+			switch msg.String() {
+			case "y", "Y":
+				userCopy := m.currentUser
+				m.selectedAssignee = &userCopy
 				m.step = stepConfirm
+				return m, nil
+			case "n", "N":
+				m.loading = true
+				return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
+					users, err := m.client.GetWorkspaceUsers(m.cfg.WorkspaceID)
+					if err != nil {
+						return errMsg(err)
+					}
+					return usersMsg(users)
+				})
+			case "esc":
+				m.step = stepDescriptionInput
+				m.descInput.Focus()
 				return m, nil
 			}
 
 		case stepConfirm:
 			switch msg.String() {
 			case "esc":
-				m.step = stepDescriptionInput
-				m.descInput.Focus()
+				m.step = stepAssigneePrompt
 				return m, nil
 			case "n":
 				m.step = stepNameInput
@@ -454,12 +488,11 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stepAssigneeSelect:
 			switch msg.String() {
 			case "esc":
-				m.step = stepConfirm
+				m.step = stepAssigneePrompt
 				return m, nil
 			case "enter":
 				if it, ok := m.assigneeList.SelectedItem().(assigneeItem); ok {
-					userCopy := it.user
-					m.selectedAssignee = &userCopy
+					m.selectedAssignee = it.user
 					m.step = stepConfirm
 					return m, nil
 				}
@@ -538,6 +571,12 @@ func (m newModel) View() string {
 		b.WriteString("Description:\n")
 		b.WriteString(m.descInput.View())
 		b.WriteString("\n\n(Ctrl+S: continue | Esc: back)")
+		return ui.DocStyle.Render(b.String())
+	case stepAssigneePrompt:
+		var b strings.Builder
+		b.WriteString(ui.HeaderStyle.Render("Assignee") + "\n\n")
+		b.WriteString("Is this task for you? (y/n)\n\n")
+		b.WriteString("(Esc: back)")
 		return ui.DocStyle.Render(b.String())
 	case stepConfirm:
 		if m.loading {
