@@ -9,7 +9,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.0"
+var (
+	Version = "0.1.0"
+	Commit  = "none"
+	Date    = "unknown"
+)
 
 var clearCache bool
 var noCache bool
@@ -17,8 +21,7 @@ var noCache bool
 var rootCmd = &cobra.Command{
 	Use:   "clickup-tui",
 	Short: "A TUI for ClickUp",
-	Long: `A TUI application built with Go, Cobra, and Bubble Tea to interact with ClickUp.`,
-	Version: Version,
+	Long:  `A TUI application built with Go, Cobra, and Bubble Tea to interact with ClickUp.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		if clearCache {
 			path := cache.CachePath()
@@ -35,7 +38,7 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.Flags().BoolP("version", "v", false, "Print version and exit")
+	rootCmd.Version = fmt.Sprintf("%s (commit: %s, date: %s)", Version, Commit, Date)
 	rootCmd.PersistentFlags().BoolVarP(&noCache, "refresh", "r", false, "Bypass cache and fetch fresh data from the API")
 	rootCmd.PersistentFlags().BoolVar(&clearCache, "clear-cache", false, "Clear the local cache before running")
 }

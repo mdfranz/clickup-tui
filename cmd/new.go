@@ -60,15 +60,9 @@ var newCmd = &cobra.Command{
 		}
 		p := tea.NewProgram(m, opts...)
 
-		finalModel, err := p.Run()
-		if err != nil {
+		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
-		}
-		
-		finalNewModel := finalModel.(newModel)
-		if os.Getenv("CLICKUP_TUI_MENU") != "1" && finalNewModel.step == stepNewDone {
-			fmt.Println(finalNewModel.viewDoneContent())
 		}
 	},
 }
@@ -326,10 +320,6 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.createdTask = &task
 		m.step = stepNewDone
 		m.loading = false
-		if os.Getenv("CLICKUP_TUI_MENU") != "1" {
-			m.quitting = true
-			return m, tea.Quit
-		}
 		return m, nil
 
 	case errMsg:
@@ -500,7 +490,17 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case stepNewDone:
 			switch msg.String() {
-			case "q", "enter", "esc":
+			case "y", "Y":
+				m.resetInputs()
+				m.step = stepNameInput
+				m.nameInput.Focus()
+				return m, nil
+			case "s", "S":
+				m.resetInputs()
+				m.step = stepFolderSelect
+				m.folderList.Select(0)
+				return m, nil
+			case "n", "N", "q", "enter", "esc":
 				return m, tea.Quit
 			}
 		}
@@ -528,6 +528,12 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *newModel) resetInputs() {
+	m.nameInput.SetValue("")
+	m.descInput.SetValue("")
+	m.createdTask = nil
 }
 
 func (m newModel) View() string {
@@ -611,7 +617,7 @@ func (m newModel) View() string {
 		return ui.DocStyle.Render(ui.SpinnerView("Creating task...", m.spinner))
 	case stepNewDone:
 		content := m.viewDoneContent()
-		return ui.DocStyle.Render(fmt.Sprintf("%s\n(Press enter to exit)", content))
+		return ui.DocStyle.Render(fmt.Sprintf("%s\n(y: same list | s: start over | n: exit)", content))
 	}
 
 	return ""

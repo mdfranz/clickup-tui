@@ -113,11 +113,13 @@ type standupModel struct {
 	quitting bool
 
 	// Per-task update state
-	updateIdx    int              // index into selected tasks
-	selected     []int            // indices of selected tasks
-	statuses     []clickup.Status // available statuses for current task's list
-	statusCursor int              // cursor in status picker
-	newStatus    string           // chosen status (empty = no change)
+	updateIdx       int               // index into selected tasks
+	selected        []int             // indices of selected tasks
+	statuses        []clickup.Status  // available statuses for current task's list
+	statusCursor    int               // cursor in status picker
+	newStatus       string            // chosen status (empty = no change)
+	comments        []clickup.Comment // recent comments for current task
+	loadingComments bool
 
 	// Summary of posted updates
 	posted  []standupResult
@@ -134,6 +136,7 @@ type standupResult struct {
 // Messages
 type standupTasksLoaded []standupTask
 type standupStatusesLoaded []clickup.Status
+type standupCommentsLoaded []clickup.Comment
 type standupUpdatePosted struct{}
 
 func initialStandupModel(client clickup.API, cfg config.Config, userID string, all bool, mine bool) standupModel {
@@ -219,6 +222,11 @@ func (m standupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.state = standupStatus
+		return m, nil
+
+	case standupCommentsLoaded:
+		m.comments = msg
+		m.loadingComments = false
 		return m, nil
 
 	case standupUpdatePosted:
@@ -323,8 +331,20 @@ func (m *standupModel) initTaskUpdate() tea.Cmd {
 	ta.SetHeight(5)
 	m.textarea = ta
 	m.newStatus = ""
+	m.comments = nil
+	m.loadingComments = true
 	m.state = standupUpdate
-	return textarea.Blink
+
+	task := m.tasks[m.selected[m.updateIdx]]
+	fetchCommentsCmd := func() tea.Msg {
+		comments, err := m.client.GetTaskComments(task.task.ID)
+		if err != nil {
+			return errMsg(err)
+		}
+		return standupCommentsLoaded(comments)
+	}
+
+	return tea.Batch(textarea.Blink, fetchCommentsCmd)
 }
 
 func (m standupModel) updateTask(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -628,6 +648,33 @@ func (m standupModel) viewUpdate() string {
 	}
 	if len(assignees) > 0 {
 		b.WriteString(fmt.Sprintf("Assignees: %s\n", ui.AssigneeStyle.Render(strings.Join(assignees, ", "))))
+	}
+
+	// Recent comments
+	b.WriteString("\n" + ui.HeaderStyle.Render("Recent Comments") + "\n")
+	if m.loadingComments {
+		b.WriteString("  Loading comments...\n")
+	} else if len(m.comments) == 0 {
+		b.WriteString("  No comments yet.\n")
+	} else {
+		// Show last 3 comments
+		start := len(m.comments) - 3
+		if start < 0 {
+			start = 0
+		}
+		for i := len(m.comments) - 1; i >= start; i-- {
+			c := m.comments[i]
+			userStyle := lipgloss.NewStyle().Foreground(ui.ColorBlue).Bold(true)
+			dateStyle := lipgloss.NewStyle().Foreground(ui.ColorGray)
+			b.WriteString(fmt.Sprintf("  %s (%s):\n", userStyle.Render(c.User.Username), dateStyle.Render(format.FormatTaskDate(c.Date))))
+			
+			// Clean up comment text (remove newlines for compact display)
+			text := strings.ReplaceAll(c.CommentText, "\n", " ")
+			if len(text) > 80 {
+				text = text[:77] + "..."
+			}
+			b.WriteString(fmt.Sprintf("    %s\n", text))
+		}
 	}
 
 	b.WriteString("\n")
