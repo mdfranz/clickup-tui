@@ -142,13 +142,12 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		baseStyle := lipgloss.NewStyle().Bold(true).Background(bgColor).Foreground(fgColor)
 
 		cursor := baseStyle.Render("▶ ")
-		statusDisplay := baseStyle.Copy().Foreground(sColor).Width(statusWidth).Render(status)
-		nameDisplay := baseStyle.Copy().Width(availableNameWidth + 1).Render(displayName)
-		dateDisplay := baseStyle.Copy().Foreground(ui.ColorBlue).Width(dateWidth).Align(lipgloss.Right).Render(formattedDate)
+		statusDisplay := baseStyle.Foreground(sColor).Width(statusWidth).Render(status)
+		nameDisplay := baseStyle.Foreground(fgColor).Width(availableNameWidth + 1).Render(displayName)
+		dateDisplay := baseStyle.Foreground(ui.ColorBlue).Width(dateWidth).Align(lipgloss.Right).Render(formattedDate)
 
-		// Join and pad to full width to ensure background stretches perfectly
 		content := lipgloss.JoinHorizontal(lipgloss.Left, cursor, statusDisplay, nameDisplay, dateDisplay)
-		fmt.Fprint(w, baseStyle.Copy().Width(m.Width()).Render(content))
+		fmt.Fprint(w, baseStyle.Width(m.Width()).Render(content))
 	} else {
 		cursor := "  "
 		statusDisplay := lipgloss.NewStyle().Bold(true).Foreground(sColor).Width(statusWidth).Render(status)
@@ -156,7 +155,7 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		dateDisplay := lipgloss.NewStyle().Foreground(ui.ColorBlue).Width(dateWidth).Align(lipgloss.Right).Render(formattedDate)
 
 		content := lipgloss.JoinHorizontal(lipgloss.Left, cursor, statusDisplay, nameDisplay, dateDisplay)
-		fmt.Fprint(w, ui.TaskItemStyle.Copy().PaddingLeft(0).Render(content))
+		fmt.Fprint(w, ui.TaskItemStyle.PaddingLeft(0).Render(content))
 	}
 }
 
@@ -201,14 +200,14 @@ func initialBrowseModel(client clickup.API, cfg config.Config, currentUser click
 	delegate := taskDelegate{list.NewDefaultDelegate()}
 	delegate.ShowDescription = false
 	l := list.New([]list.Item{}, delegate, 0, 0)
-	title := "Active Tasks (n: New Task)"
+	base := "Active Tasks"
 	if all {
-		title = "All Open Tasks (n: New Task)"
+		base = "All Open Tasks"
 	}
 	if mine {
-		title = strings.Replace(title, " (n: New Task)", " (Mine) (n: New Task)", 1)
+		base += " (Mine)"
 	}
-	l.Title = title
+	l.Title = base + " (n: New Task)"
 
 	slDelegate := list.NewDefaultDelegate()
 	slDelegate.ShowDescription = false

@@ -193,25 +193,28 @@ func fetchTeamActivity(client clickup.API, cfg config.Config, days int) (map[str
 				}
 
 				// 3. Fetch task comments to attribute to respective authors
-				comments, err := client.GetTaskComments(task.ID)
-				if err == nil {
-					for _, comment := range comments {
-						commentDate, _ := strconv.ParseInt(comment.Date, 10, 64)
-						if commentDate >= dateFrom {
-							commenterID := comment.User.ID.String()
-							commenter, exists := userMap[commenterID]
-							if !exists {
-								commenter = comment.User
+				// Only fetch if task was updated within the window (avoids N+1 on stale tasks)
+				if taskDateUpdated >= dateFrom {
+					comments, err := client.GetTaskComments(task.ID)
+					if err == nil {
+						for _, comment := range comments {
+							commentDate, _ := strconv.ParseInt(comment.Date, 10, 64)
+							if commentDate >= dateFrom {
+								commenterID := comment.User.ID.String()
+								commenter, exists := userMap[commenterID]
+								if !exists {
+									commenter = comment.User
+								}
+								activities = append(activities, clickup.Activity{
+									ID:     "comment-" + comment.ID,
+									User:   commenter,
+									Type:   "commented on task",
+									Date:   comment.Date,
+									TaskID: task.ID,
+									Source: task.Name,
+									Detail: comment.CommentText,
+								})
 							}
-							activities = append(activities, clickup.Activity{
-								ID:     "comment-" + comment.ID,
-								User:   commenter,
-								Type:   "commented on task",
-								Date:   comment.Date,
-								TaskID: task.ID,
-								Source: task.Name,
-								Detail: comment.CommentText,
-							})
 						}
 					}
 				}

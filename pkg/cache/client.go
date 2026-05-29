@@ -404,9 +404,10 @@ func mergeTasks(existing, updates []clickup.Task) []clickup.Task {
 	return existing
 }
 
-// filterActiveTasks removes closed/completed tasks to match GetTasks (include_closed=false) behavior.
+// filterActiveTasks returns a new slice with closed tasks removed,
+// without mutating the cached backing array.
 func filterActiveTasks(tasks []clickup.Task) []clickup.Task {
-	result := tasks[:0]
+	result := make([]clickup.Task, 0, len(tasks))
 	for _, t := range tasks {
 		status := strings.ToLower(t.Status.Status)
 		if status != "closed" {

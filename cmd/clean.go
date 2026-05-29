@@ -10,6 +10,8 @@ import (
 	"clickup-tui/pkg/config"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 var cleanCmd = &cobra.Command{
@@ -47,7 +49,7 @@ func cleanFile(reader *bufio.Reader, path string, label string) {
 		if err := os.Remove(path); err != nil {
 			fmt.Printf("Error removing %s: %v\n", label, err)
 		} else {
-			fmt.Printf("%s removed.\n", strings.Title(label))
+			fmt.Printf("%s removed.\n", cases.Title(language.English).String(label))
 		}
 	}
 }
