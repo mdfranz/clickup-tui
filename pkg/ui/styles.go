@@ -66,6 +66,10 @@ var (
 		Italic(true).
 		Foreground(lipgloss.AdaptiveColor{Light: "239", Dark: "242"})
 
+	SubtaskIndicatorStyle = lipgloss.NewStyle().
+		Foreground(ColorGray).
+		Bold(true)
+
 	SummaryStyle = lipgloss.NewStyle().
 		Italic(true).
 		Foreground(ColorBlue).
@@ -74,6 +78,15 @@ var (
 	NoTasksStyle = lipgloss.NewStyle().
 		Italic(true).
 		Foreground(ColorDarkGray).
+		PaddingLeft(4)
+
+	SelectedTaskStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorPurple).
+		Background(lipgloss.AdaptiveColor{Light: "252", Dark: "235"}).
+		PaddingLeft(2)
+
+	TaskItemStyle = lipgloss.NewStyle().
 		PaddingLeft(4)
 
 	DocStyle = lipgloss.NewStyle().Margin(1, 2)

@@ -113,6 +113,7 @@ func initialMenuModel() menuModel {
 		menuItem{cmd: "new", title: "New Task", description: "Create a new task"},
 		menuItem{cmd: "standup", title: "Standup", description: "Walk through tasks and post updates"},
 		menuItem{cmd: "track", title: "Track Activity", description: "View user activity for the last 10 days"},
+		menuItem{cmd: "team-status", title: "Team Status", description: "View team activity summary across the last n days"},
 		menuItem{cmd: "setup", title: "Setup", description: "Configure your workspace, space, and folders"},
 		menuItem{cmd: "show", title: "Show Config", description: "Display current configuration"},
 	}

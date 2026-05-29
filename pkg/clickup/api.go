@@ -9,7 +9,7 @@ type API interface {
 	GetFolders(spaceID string) ([]Folder, error)
 	GetLists(folderID string) ([]List, error)
 	GetList(listID string) (List, error)
-	GetTasks(listID string) ([]Task, error)
+	GetTasks(listID string, includeClosed bool) ([]Task, error)
 	GetRecentTasks(listID string, dateUpdatedGt int64) ([]Task, error)
 	GetTask(taskID string) (Task, error)
 	GetTaskComments(taskID string) ([]Comment, error)

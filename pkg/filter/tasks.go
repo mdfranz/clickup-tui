@@ -7,7 +7,7 @@ import (
 )
 
 // ShouldIncludeTask determines if a task should be included based on its status and optionally its assignee.
-// If showAll is false, only includes tasks in "in progress" or "in review" status.
+// If showAll is false, only includes active tasks: "in progress", "in review", "blocked", "scoping".
 // If showAll is true, includes all tasks except "completed" or "closed".
 // If mineOnly is true, only includes tasks where the given userID is an assignee.
 func ShouldIncludeTask(task clickup.Task, userID string, showAll bool, mineOnly bool) bool {
@@ -29,5 +29,5 @@ func ShouldIncludeTask(task clickup.Task, userID string, showAll bool, mineOnly 
 	if showAll {
 		return status != "completed" && status != "closed"
 	}
-	return status == "in progress" || status == "in review" || status == "blocked"
+	return status == "in progress" || status == "in review" || status == "blocked" || status == "scoping"
 }

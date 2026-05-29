@@ -60,15 +60,9 @@ var newCmd = &cobra.Command{
 		}
 		p := tea.NewProgram(m, opts...)
 
-		finalModel, err := p.Run()
-		if err != nil {
+		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
-		}
-		
-		finalNewModel := finalModel.(newModel)
-		if os.Getenv("CLICKUP_TUI_MENU") != "1" && finalNewModel.step == stepNewDone {
-			fmt.Println(finalNewModel.viewDoneContent())
 		}
 	},
 }
@@ -81,6 +75,7 @@ const (
 	stepStatusSelect
 	stepNameInput
 	stepDescriptionInput
+	stepAssigneePrompt
 	stepAssigneeSelect
 	stepConfirm
 	stepCreating
@@ -112,12 +107,27 @@ func (i statusItem) Description() string { return "Status" }
 func (i statusItem) FilterValue() string { return i.status.Status }
 
 type assigneeItem struct {
-	user clickup.User
+	user *clickup.User
 }
 
-func (i assigneeItem) Title() string       { return i.user.Username }
-func (i assigneeItem) Description() string { return fmt.Sprintf("%s (ID: %s)", i.user.Email, i.user.ID.String()) }
-func (i assigneeItem) FilterValue() string { return i.user.Username + " " + i.user.ID.String() }
+func (i assigneeItem) Title() string {
+	if i.user == nil {
+		return "Unassigned"
+	}
+	return i.user.Username
+}
+func (i assigneeItem) Description() string {
+	if i.user == nil {
+		return "No one is assigned to this task"
+	}
+	return fmt.Sprintf("%s (ID: %s)", i.user.Email, i.user.ID.String())
+}
+func (i assigneeItem) FilterValue() string {
+	if i.user == nil {
+		return "unassigned"
+	}
+	return i.user.Username + " " + i.user.ID.String()
+}
 
 type listsMsg []clickup.List
 type listMsg clickup.List
@@ -137,6 +147,7 @@ type newModel struct {
 	selectedList     clickup.List
 	selectedStatus   clickup.Status
 	selectedAssignee *clickup.User
+	targetListID     string
 	nameInput        textinput.Model
 	descInput        textarea.Model
 	loading          bool
@@ -219,14 +230,11 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case usersMsg:
 		m.loading = false
-		if len(msg) == 0 {
-			m.err = fmt.Errorf("no users found in workspace %s", m.cfg.WorkspaceName)
-			m.step = stepConfirm
-			return m, nil
-		}
-		items := make([]list.Item, len(msg))
+		items := make([]list.Item, len(msg)+1)
+		items[0] = assigneeItem{user: nil} // Unassigned
 		for i, u := range msg {
-			items[i] = assigneeItem{user: u}
+			uCopy := u
+			items[i+1] = assigneeItem{user: &uCopy}
 		}
 		m.assigneeList.SetItems(items)
 		m.step = stepAssigneeSelect
@@ -238,6 +246,24 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("no lists found in folder %s", m.selectedFolder.Name)
 			m.step = stepFolderSelect
 			return m, nil
+		}
+
+		// Check for target list ID first
+		if m.targetListID != "" {
+			for _, l := range msg {
+				if l.ID == m.targetListID {
+					m.selectedList = l
+					m.loading = true
+					m.step = stepStatusSelect
+					return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
+						list, err := m.client.GetList(l.ID)
+						if err != nil {
+							return errMsg(err)
+						}
+						return listMsg(list)
+					})
+				}
+			}
 		}
 
 		// Auto-select "List" if it exists, or if there's only one list
@@ -294,10 +320,6 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.createdTask = &task
 		m.step = stepNewDone
 		m.loading = false
-		if os.Getenv("CLICKUP_TUI_MENU") != "1" {
-			m.quitting = true
-			return m, tea.Quit
-		}
 		return m, nil
 
 	case errMsg:
@@ -387,15 +409,36 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.nameInput.Focus()
 				return m, nil
 			case "ctrl+s":
+				m.step = stepAssigneePrompt
+				return m, nil
+			}
+
+		case stepAssigneePrompt:
+			switch msg.String() {
+			case "y", "Y":
+				userCopy := m.currentUser
+				m.selectedAssignee = &userCopy
 				m.step = stepConfirm
+				return m, nil
+			case "n", "N":
+				m.loading = true
+				return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
+					users, err := m.client.GetWorkspaceUsers(m.cfg.WorkspaceID)
+					if err != nil {
+						return errMsg(err)
+					}
+					return usersMsg(users)
+				})
+			case "esc":
+				m.step = stepDescriptionInput
+				m.descInput.Focus()
 				return m, nil
 			}
 
 		case stepConfirm:
 			switch msg.String() {
 			case "esc":
-				m.step = stepDescriptionInput
-				m.descInput.Focus()
+				m.step = stepAssigneePrompt
 				return m, nil
 			case "n":
 				m.step = stepNameInput
@@ -435,12 +478,11 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stepAssigneeSelect:
 			switch msg.String() {
 			case "esc":
-				m.step = stepConfirm
+				m.step = stepAssigneePrompt
 				return m, nil
 			case "enter":
 				if it, ok := m.assigneeList.SelectedItem().(assigneeItem); ok {
-					userCopy := it.user
-					m.selectedAssignee = &userCopy
+					m.selectedAssignee = it.user
 					m.step = stepConfirm
 					return m, nil
 				}
@@ -448,7 +490,17 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case stepNewDone:
 			switch msg.String() {
-			case "q", "enter", "esc":
+			case "y", "Y":
+				m.resetInputs()
+				m.step = stepNameInput
+				m.nameInput.Focus()
+				return m, nil
+			case "s", "S":
+				m.resetInputs()
+				m.step = stepFolderSelect
+				m.folderList.Select(0)
+				return m, nil
+			case "n", "N", "q", "enter", "esc":
 				return m, tea.Quit
 			}
 		}
@@ -476,6 +528,12 @@ func (m newModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *newModel) resetInputs() {
+	m.nameInput.SetValue("")
+	m.descInput.SetValue("")
+	m.createdTask = nil
 }
 
 func (m newModel) View() string {
@@ -520,6 +578,12 @@ func (m newModel) View() string {
 		b.WriteString(m.descInput.View())
 		b.WriteString("\n\n(Ctrl+S: continue | Esc: back)")
 		return ui.DocStyle.Render(b.String())
+	case stepAssigneePrompt:
+		var b strings.Builder
+		b.WriteString(ui.HeaderStyle.Render("Assignee") + "\n\n")
+		b.WriteString("Is this task for you? (y/n)\n\n")
+		b.WriteString("(Esc: back)")
+		return ui.DocStyle.Render(b.String())
 	case stepConfirm:
 		if m.loading {
 			return ui.DocStyle.Render(ui.SpinnerView("Loading users...", m.spinner))
@@ -553,7 +617,7 @@ func (m newModel) View() string {
 		return ui.DocStyle.Render(ui.SpinnerView("Creating task...", m.spinner))
 	case stepNewDone:
 		content := m.viewDoneContent()
-		return ui.DocStyle.Render(fmt.Sprintf("%s\n(Press enter to exit)", content))
+		return ui.DocStyle.Render(fmt.Sprintf("%s\n(y: same list | s: start over | n: exit)", content))
 	}
 
 	return ""

@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"clickup-tui/pkg/logger"
 )
 
 const APIURL = "https://api.clickup.com/api/v2/"
@@ -79,6 +81,7 @@ type Task struct {
 	Status struct {
 		Status string `json:"status"`
 	} `json:"status"`
+	ParentID    string `json:"parent"`
 	Assignees   []User `json:"assignees"`
 	Creator     User   `json:"creator"`
 	DateCreated string `json:"date_created"` // Unix timestamp in milliseconds as string
@@ -86,6 +89,32 @@ type Task struct {
 	DateDone    string `json:"date_done"`    // Unix timestamp in milliseconds as string
 	DateClosed  string `json:"date_closed"`  // Unix timestamp in milliseconds as string
 	TextContent string `json:"text_content"` // Task description
+}
+
+func (t *Task) UnmarshalJSON(data []byte) error {
+	type Alias Task
+	aux := &struct {
+		Parent interface{} `json:"parent"`
+		*Alias
+	}{
+		Alias: (*Alias)(t),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if aux.Parent != nil {
+		switch v := aux.Parent.(type) {
+		case string:
+			t.ParentID = v
+		case map[string]interface{}:
+			if id, ok := v["id"].(string); ok {
+				t.ParentID = id
+			}
+		}
+	}
+
+	return nil
 }
 
 type TasksResponse struct {
@@ -132,7 +161,7 @@ func (c *Client) doRequestWithBody(method, url string, body io.Reader, target in
 		}
 	}
 
-	slog.Info("API Request", "method", method, "url", url, "body", string(reqBody))
+	slog.Info("API Request", "method", method, "url", url, "body", logger.TruncateBody(string(reqBody)))
 
 	var bodyReader io.Reader
 	if len(reqBody) > 0 {
@@ -166,10 +195,10 @@ func (c *Client) doRequestWithBody(method, url string, body io.Reader, target in
 		return err
 	}
 
-	slog.Info("API Response", 
-		"status", resp.StatusCode, 
-		"duration", duration, 
-		"body", string(respBody),
+	slog.Info("API Response",
+		"status", resp.StatusCode,
+		"duration", duration,
+		"body", logger.TruncateBody(string(respBody)),
 	)
 
 	if resp.StatusCode != http.StatusOK {
@@ -177,7 +206,7 @@ func (c *Client) doRequestWithBody(method, url string, body io.Reader, target in
 	}
 
 	if err := json.Unmarshal(respBody, target); err != nil {
-		slog.Error("Failed to unmarshal response", "error", err, "body", string(respBody))
+		slog.Error("Failed to unmarshal response", "error", err, "body", logger.TruncateBody(string(respBody)))
 		return err
 	}
 
@@ -191,6 +220,7 @@ type Activity struct {
 	Date   string `json:"date"` // Unix timestamp in milliseconds as string
 	TaskID string `json:"task_id"`
 	Source string `json:"source"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type ActivityResponse struct {
@@ -198,7 +228,7 @@ type ActivityResponse struct {
 }
 
 func (c *Client) GetRecentTasks(listID string, dateUpdatedGt int64) ([]Task, error) {
-	url := fmt.Sprintf("%slist/%s/task?archived=false&include_closed=true&date_updated_gt=%d", APIURL, listID, dateUpdatedGt)
+	url := fmt.Sprintf("%slist/%s/task?archived=false&include_closed=true&subtasks=true&date_updated_gt=%d", APIURL, listID, dateUpdatedGt)
 	var tasksResp TasksResponse
 	if err := c.doRequest("GET", url, &tasksResp); err != nil {
 		return nil, err
@@ -268,8 +298,8 @@ func (c *Client) GetLists(folderID string) ([]List, error) {
 	return listsResp.Lists, nil
 }
 
-func (c *Client) GetTasks(listID string) ([]Task, error) {
-	url := fmt.Sprintf("%slist/%s/task?archived=false&include_closed=false", APIURL, listID)
+func (c *Client) GetTasks(listID string, includeClosed bool) ([]Task, error) {
+	url := fmt.Sprintf("%slist/%s/task?archived=false&include_closed=%t&subtasks=true", APIURL, listID, includeClosed)
 	var tasksResp TasksResponse
 	if err := c.doRequest("GET", url, &tasksResp); err != nil {
 		return nil, err

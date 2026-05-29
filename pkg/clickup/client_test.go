@@ -162,3 +162,60 @@ func TestUserIDType(t *testing.T) {
 		t.Errorf("User ID String() = %q, want %q", idStr, "12345")
 	}
 }
+
+func TestTaskUnmarshal(t *testing.T) {
+	tests := []struct {
+		name     string
+		json     string
+		wantID   string
+		wantName string
+		wantPid  string
+	}{
+		{
+			name:     "task with string parent",
+			json:     `{"id": "task1", "name": "Task 1", "parent": "parent1"}`,
+			wantID:   "task1",
+			wantName: "Task 1",
+			wantPid:  "parent1",
+		},
+		{
+			name:     "task with object parent",
+			json:     `{"id": "task2", "name": "Task 2", "parent": {"id": "parent2"}}`,
+			wantID:   "task2",
+			wantName: "Task 2",
+			wantPid:  "parent2",
+		},
+		{
+			name:     "task with null parent",
+			json:     `{"id": "task3", "name": "Task 3", "parent": null}`,
+			wantID:   "task3",
+			wantName: "Task 3",
+			wantPid:  "",
+		},
+		{
+			name:     "task with no parent field",
+			json:     `{"id": "task4", "name": "Task 4"}`,
+			wantID:   "task4",
+			wantName: "Task 4",
+			wantPid:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var task Task
+			if err := json.Unmarshal([]byte(tt.json), &task); err != nil {
+				t.Fatalf("Failed to unmarshal: %v", err)
+			}
+			if task.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", task.ID, tt.wantID)
+			}
+			if task.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", task.Name, tt.wantName)
+			}
+			if task.ParentID != tt.wantPid {
+				t.Errorf("ParentID = %q, want %q", task.ParentID, tt.wantPid)
+			}
+		})
+	}
+}
