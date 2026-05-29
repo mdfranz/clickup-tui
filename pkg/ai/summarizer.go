@@ -238,16 +238,15 @@ func (s *Summarizer) SummarizeTeamActivity(days int, userActivities map[string][
 Strict Guidelines:
 1. Do not use hyperbolic, grandiose, or embellished language. Avoid adjectives like "instrumental," "vital," "significant," "collaboration has been high," etc.
 2. Be strictly factual and base everything directly on the logs.
-3. Keep sentences short and to the point.
-4. Do not use emojis in headers.
-5. Capture and include specific dates/times (e.g., "on 05/29") when describing when specific tasks were completed, updated, or commented on, based directly on the timestamp bracketed in the logs.
-6. Include activities and comments if they are provided. Indicate when no details have been provided on state changes.
+3. Do not use emojis in headers.
+4. Capture and include specific dates/times (e.g., "on 05/29") when describing when specific tasks were completed, updated, or commented on, based directly on the timestamp bracketed in the logs.
+7. Include activities and comments if they are provided. Indicate when no details have been provided on state changes.
 
 Format the summary with the following structure:
 
 # Team Status Report (Last %d Days)
 
-Provide a 2-3 sentence summary of the period of review.
+Provide a 3-5 sentence summary of the period of review.
 
 ## Key Achievements & Completed Work
 - List specific tasks that were completed or closed in the last %d days based directly on the logs. Keep description of achievements factual and objective.
