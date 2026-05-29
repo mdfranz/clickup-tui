@@ -383,7 +383,9 @@ func (m trackModel) generateDisplayContent() string {
 				activityLine += fmt.Sprintf(" (%s)", a.Source)
 			}
 			if a.Detail != "" {
-				activityLine += fmt.Sprintf("\n      └ %s", strings.TrimSpace(a.Detail))
+				// Flatten newlines and collapse spaces for a clean single-line output
+				detailClean := strings.Join(strings.Fields(a.Detail), " ")
+				activityLine += fmt.Sprintf("\n      └ %s", detailClean)
 			}
 			b.WriteString(activityWrapStyle.Render(activityLine))
 			b.WriteString("\n")

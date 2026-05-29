@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"clickup-tui/pkg/clickup"
+	"clickup-tui/pkg/format"
 
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/googleai"
@@ -97,7 +98,7 @@ func (s *Summarizer) SummarizeTasks(folderName string, tasks []clickup.Task) (st
 		}
 	}
 
-	prompt := fmt.Sprintf(`Please provide a high-level summary of the work currently active in the ClickUp folder "%s" based on the following list of tasks. 
+	prompt := fmt.Sprintf(`Please provide a high-level summary of the work currently active in the ClickUp folder "%s" based on the following list of tasks.
 
 Format the response using Markdown with the following structure:
 [A brief paragraph summarizing the overall status]
@@ -186,6 +187,91 @@ Activity Data:
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to generate activity summary: %v", err)
+	}
+
+	if len(res.Choices) == 0 {
+		return "No summary generated.", nil
+	}
+
+	return strings.TrimSpace(res.Choices[0].Content), nil
+}
+
+func (s *Summarizer) SummarizeTeamActivity(days int, userActivities map[string][]clickup.Activity, taskDetails map[string]clickup.Task) (string, error) {
+	ctx := context.Background()
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Team Activity Report for the last %d Days\n\n", days))
+
+	for username, activities := range userActivities {
+		b.WriteString(fmt.Sprintf("### Member: %s\n", username))
+
+		// Group by task for better readability
+		taskActivities := make(map[string][]clickup.Activity)
+		for _, a := range activities {
+			taskActivities[a.TaskID] = append(taskActivities[a.TaskID], a)
+		}
+
+		for taskID, acts := range taskActivities {
+			task, hasTask := taskDetails[taskID]
+			if hasTask {
+				b.WriteString(fmt.Sprintf("- Task: [%s] %s (ID: %s)\n", task.Status.Status, task.Name, task.ID))
+			} else {
+				b.WriteString(fmt.Sprintf("- Task ID: %s (Details unavailable)\n", taskID))
+			}
+			for _, a := range acts {
+				dateStr := format.FormatCommentDate(a.Date)
+				if dateStr != "" {
+					b.WriteString(fmt.Sprintf("  - [%s] %s\n", dateStr, a.Type))
+				} else {
+					b.WriteString(fmt.Sprintf("  - %s\n", a.Type))
+				}
+				if a.Detail != "" {
+					b.WriteString(fmt.Sprintf("    Detail: %s\n", strings.ReplaceAll(a.Detail, "\n", " ")))
+				}
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	prompt := fmt.Sprintf(`Analyze the following ClickUp activity logs for the team over the last %d days and generate a factual, objective, and concise **Team Activity Summary** in Markdown.
+
+Strict Guidelines:
+1. Do not use hyperbolic, grandiose, or embellished language. Avoid adjectives like "instrumental," "vital," "significant," "collaboration has been high," etc.
+2. Be strictly factual and base everything directly on the logs.
+3. Keep sentences short and to the point.
+4. Do not use emojis in headers.
+5. Capture and include specific dates/times (e.g., "on 05/29") when describing when specific tasks were completed, updated, or commented on, based directly on the timestamp bracketed in the logs.
+6. Include activities and comments if they are provided. Indicate when no details have been provided on state changes.
+
+Format the summary with the following structure:
+
+# Team Status Report (Last %d Days)
+
+Provide a 2-3 sentence summary of the period of review.
+
+## Key Achievements & Completed Work
+- List specific tasks that were completed or closed in the last %d days based directly on the logs. Keep description of achievements factual and objective.
+
+## Individual Activity & Progress
+For each active team member, provide a concise bulleted list or a direct, factual 1-2 sentence summary of the specific tasks they created, updated, or commented on. Do not embellish their role or impact.
+Format:
+- **[Member Name]**: [Factual summary of what tasks they updated, created, or commented on]
+
+## Discussions & Comments
+- Summarize specific key points discussed in task comments based on the log (e.g., vendor meetings, SOC2 collection, groups). If no relevant discussion, state "No discussion logs available."
+
+## Blockers, Risks & Friction
+- Factual list of tasks currently blocked or showing delays, with the reported reason. If none, state "No blockers reported."
+- Capture open/in progress/blocked tasks that have not been updated during the review period that may need attention.
+
+Team Activity Logs:
+%s`, days, days, days, b.String())
+
+	res, err := s.model.GenerateContent(ctx, []llms.MessageContent{
+		llms.TextParts(llms.ChatMessageTypeHuman, prompt),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to generate team activity summary: %v", err)
 	}
 
 	if len(res.Choices) == 0 {
