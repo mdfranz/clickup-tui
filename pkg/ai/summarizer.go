@@ -142,7 +142,17 @@ func (s *Summarizer) SummarizeUserActivity(userName string, date string, activit
 	for taskID, acts := range taskActivities {
 		task, hasTask := taskDetails[taskID]
 		if hasTask {
-			b.WriteString(fmt.Sprintf("Task: [%s] %s\n", task.Status.Status, task.Name))
+			folderContext := ""
+			if task.FolderName != "" {
+				if task.ListName != "" {
+					folderContext = fmt.Sprintf(" (Folder: %s, List: %s)", task.FolderName, task.ListName)
+				} else {
+					folderContext = fmt.Sprintf(" (Folder: %s)", task.FolderName)
+				}
+			} else if task.ListName != "" {
+				folderContext = fmt.Sprintf(" (List: %s)", task.ListName)
+			}
+			b.WriteString(fmt.Sprintf("Task: [%s] %s%s\n", task.Status.Status, task.Name, folderContext))
 			if task.TextContent != "" {
 				desc := task.TextContent
 				if len(desc) > 300 {
@@ -214,7 +224,17 @@ func (s *Summarizer) SummarizeTeamActivity(days int, userActivities map[string][
 		for taskID, acts := range taskActivities {
 			task, hasTask := taskDetails[taskID]
 			if hasTask {
-				b.WriteString(fmt.Sprintf("- Task: [%s] %s (ID: %s)\n", task.Status.Status, task.Name, task.ID))
+				folderContext := ""
+				if task.FolderName != "" {
+					if task.ListName != "" {
+						folderContext = fmt.Sprintf(" (Folder: %s, List: %s)", task.FolderName, task.ListName)
+					} else {
+						folderContext = fmt.Sprintf(" (Folder: %s)", task.FolderName)
+					}
+				} else if task.ListName != "" {
+					folderContext = fmt.Sprintf(" (List: %s)", task.ListName)
+				}
+				b.WriteString(fmt.Sprintf("- Task: [%s] %s%s (ID: %s)\n", task.Status.Status, task.Name, folderContext, task.ID))
 			} else {
 				b.WriteString(fmt.Sprintf("- Task ID: %s (Details unavailable)\n", taskID))
 			}
@@ -252,9 +272,14 @@ Provide a 3-5 sentence summary of the period of review.
 - List specific tasks that were completed or closed in the last %d days based directly on the logs. Keep description of achievements factual and objective.
 
 ## Individual Activity & Progress
-For each active team member, provide a concise bulleted list or a direct, factual 1-2 sentence summary of the specific tasks they created, updated, or commented on. Do not embellish their role or impact.
+For each active team member, list their name followed by a structured bulleted sub-list of the tasks they worked on.
+Guidelines for this sub-list:
+1. Only include tasks where the user performed substantive work, such as adding comments describing progress/findings or completing/closing the task.
+2. Exclude purely administrative events such as task creation, assignment, or status transitions (e.g. changing status to in progress/backlog) if no comments or actual work descriptions are present for that task.
+3. For each included task, provide a brief, factual description of the work done or comment content, rather than listing administrative status shifts.
 Format:
-- **[Member Name]**: [Factual summary of what tasks they updated, created, or commented on]
+- **[Member Name]**:
+  - **[Exact Task Name]**: [Factual description of work done or comment content, with dates]
 
 ## Discussions & Comments
 - Summarize specific key points discussed in task comments based on the log (e.g., vendor meetings, SOC2 collection, groups). If no relevant discussion, state "No discussion logs available."

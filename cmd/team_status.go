@@ -104,6 +104,49 @@ var teamStatusCmd = &cobra.Command{
 	},
 }
 
+func getUpdateActors(comments []clickup.Comment, eventTime int64, defaultAssignees []clickup.User, creator clickup.User, userMap map[string]clickup.User) []clickup.User {
+	// 1. Check if any comment is very close to eventTime (within 5 seconds / 5000 ms)
+	for _, c := range comments {
+		cTime, err := strconv.ParseInt(c.Date, 10, 64)
+		if err == nil {
+			diff := eventTime - cTime
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff <= 5000 {
+				commenterID := c.User.ID.String()
+				commenter, exists := userMap[commenterID]
+				if !exists {
+					commenter = c.User
+				}
+				return []clickup.User{commenter}
+			}
+		}
+	}
+
+	// 2. Fallback to assignees if any
+	if len(defaultAssignees) > 0 {
+		var actors []clickup.User
+		for _, assignee := range defaultAssignees {
+			assigneeID := assignee.ID.String()
+			actualAssignee, exists := userMap[assigneeID]
+			if !exists {
+				actualAssignee = assignee
+			}
+			actors = append(actors, actualAssignee)
+		}
+		return actors
+	}
+
+	// 3. Fallback to creator
+	creatorID := creator.ID.String()
+	actualCreator, exists := userMap[creatorID]
+	if !exists {
+		actualCreator = creator
+	}
+	return []clickup.User{actualCreator}
+}
+
 func fetchTeamActivity(client clickup.API, cfg config.Config, days int) (map[string][]clickup.Activity, []clickup.Activity, map[string]clickup.Task, error) {
 	dateFrom := time.Now().AddDate(0, 0, -days).UnixNano() / int64(time.Millisecond)
 
@@ -129,6 +172,12 @@ func fetchTeamActivity(client clickup.API, cfg config.Config, days int) (map[str
 				continue
 			}
 
+			// Populate FolderName and ListName
+			for i := range tasks {
+				tasks[i].FolderName = folder.Name
+				tasks[i].ListName = listObj.Name
+			}
+
 			for _, task := range tasks {
 				taskDateCreated, _ := strconv.ParseInt(task.DateCreated, 10, 64)
 				taskDateUpdated, _ := strconv.ParseInt(task.DateUpdated, 10, 64)
@@ -136,6 +185,12 @@ func fetchTeamActivity(client clickup.API, cfg config.Config, days int) (map[str
 				taskDateClosed, _ := strconv.ParseInt(task.DateClosed, 10, 64)
 
 				taskDetails[task.ID] = task
+
+				// Fetch task comments first if task was updated in the window
+				var comments []clickup.Comment
+				if taskDateUpdated >= dateFrom {
+					comments, _ = client.GetTaskComments(task.ID)
+				}
 
 				// 1. Check if task was created within time window by a workspace user
 				if taskDateCreated >= dateFrom {
@@ -145,77 +200,103 @@ func fetchTeamActivity(client clickup.API, cfg config.Config, days int) (map[str
 						creator = task.Creator
 					}
 					activities = append(activities, clickup.Activity{
-						ID:     "create-" + task.ID,
-						User:   creator,
-						Type:   fmt.Sprintf("created task [%s]", task.Status.Status),
-						Date:   task.DateCreated,
-						TaskID: task.ID,
-						Source: task.Name,
+						ID:         "create-" + task.ID,
+						User:       creator,
+						Type:       fmt.Sprintf("created task [%s]", task.Status.Status),
+						Date:       task.DateCreated,
+						TaskID:     task.ID,
+						Source:     task.Name,
+						FolderName: task.FolderName,
+						ListName:   task.ListName,
 					})
-				}
 
-				// 2. Check for completions, closures, or general updates by assignees
-				for _, assignee := range task.Assignees {
-					assigneeID := assignee.ID.String()
-					actualAssignee, exists := userMap[assigneeID]
-					if !exists {
-						actualAssignee = assignee
-					}
-
-					if taskDateDone >= dateFrom {
-						activities = append(activities, clickup.Activity{
-							ID:     "done-" + task.ID + "-" + task.DateDone + "-" + assigneeID,
-							User:   actualAssignee,
-							Type:   fmt.Sprintf("completed task [%s]", task.Status.Status),
-							Date:   task.DateDone,
-							TaskID: task.ID,
-							Source: task.Name,
-						})
-					} else if taskDateClosed >= dateFrom {
-						activities = append(activities, clickup.Activity{
-							ID:     "closed-" + task.ID + "-" + task.DateClosed + "-" + assigneeID,
-							User:   actualAssignee,
-							Type:   fmt.Sprintf("closed task [%s]", task.Status.Status),
-							Date:   task.DateClosed,
-							TaskID: task.ID,
-							Source: task.Name,
-						})
-					} else if taskDateUpdated >= dateFrom && taskDateUpdated > taskDateCreated {
-						activities = append(activities, clickup.Activity{
-							ID:     "update-" + task.ID + "-" + task.DateUpdated + "-" + assigneeID,
-							User:   actualAssignee,
-							Type:   fmt.Sprintf("updated task [%s]", task.Status.Status),
-							Date:   task.DateUpdated,
-							TaskID: task.ID,
-							Source: task.Name,
-						})
-					}
-				}
-
-				// 3. Fetch task comments to attribute to respective authors
-				// Only fetch if task was updated within the window (avoids N+1 on stale tasks)
-				if taskDateUpdated >= dateFrom {
-					comments, err := client.GetTaskComments(task.ID)
-					if err == nil {
-						for _, comment := range comments {
-							commentDate, _ := strconv.ParseInt(comment.Date, 10, 64)
-							if commentDate >= dateFrom {
-								commenterID := comment.User.ID.String()
-								commenter, exists := userMap[commenterID]
-								if !exists {
-									commenter = comment.User
-								}
-								activities = append(activities, clickup.Activity{
-									ID:     "comment-" + comment.ID,
-									User:   commenter,
-									Type:   "commented on task",
-									Date:   comment.Date,
-									TaskID: task.ID,
-									Source: task.Name,
-									Detail: comment.CommentText,
-								})
+					// Also attribute "assigned to task" to assignees who are not the creator
+					for _, assignee := range task.Assignees {
+						if assignee.ID.String() != creatorID {
+							assigneeID := assignee.ID.String()
+							actualAssignee, exists := userMap[assigneeID]
+							if !exists {
+								actualAssignee = assignee
 							}
+							activities = append(activities, clickup.Activity{
+								ID:         "assign-create-" + task.ID + "-" + assigneeID,
+								User:       actualAssignee,
+								Type:       "assigned to task",
+								Date:       task.DateCreated,
+								TaskID:     task.ID,
+								Source:     task.Name,
+								FolderName: task.FolderName,
+								ListName:   task.ListName,
+							})
 						}
+					}
+				}
+
+				// 2. Check for completions, closures, or general updates by actors
+				if taskDateDone >= dateFrom {
+					actors := getUpdateActors(comments, taskDateDone, task.Assignees, task.Creator, userMap)
+					for _, actor := range actors {
+						activities = append(activities, clickup.Activity{
+							ID:         "done-" + task.ID + "-" + task.DateDone + "-" + actor.ID.String(),
+							User:       actor,
+							Type:       fmt.Sprintf("completed task [%s]", task.Status.Status),
+							Date:       task.DateDone,
+							TaskID:     task.ID,
+							Source:     task.Name,
+							FolderName: task.FolderName,
+							ListName:   task.ListName,
+						})
+					}
+				} else if taskDateClosed >= dateFrom {
+					actors := getUpdateActors(comments, taskDateClosed, task.Assignees, task.Creator, userMap)
+					for _, actor := range actors {
+						activities = append(activities, clickup.Activity{
+							ID:         "closed-" + task.ID + "-" + task.DateClosed + "-" + actor.ID.String(),
+							User:       actor,
+							Type:       fmt.Sprintf("closed task [%s]", task.Status.Status),
+							Date:       task.DateClosed,
+							TaskID:     task.ID,
+							Source:     task.Name,
+							FolderName: task.FolderName,
+							ListName:   task.ListName,
+						})
+					}
+				} else if taskDateUpdated >= dateFrom && taskDateUpdated > taskDateCreated {
+					actors := getUpdateActors(comments, taskDateUpdated, task.Assignees, task.Creator, userMap)
+					for _, actor := range actors {
+						activities = append(activities, clickup.Activity{
+							ID:         "update-" + task.ID + "-" + task.DateUpdated + "-" + actor.ID.String(),
+							User:       actor,
+							Type:       fmt.Sprintf("updated task [%s]", task.Status.Status),
+							Date:       task.DateUpdated,
+							TaskID:     task.ID,
+							Source:     task.Name,
+							FolderName: task.FolderName,
+							ListName:   task.ListName,
+						})
+					}
+				}
+
+				// 3. Log comments
+				for _, comment := range comments {
+					commentDate, _ := strconv.ParseInt(comment.Date, 10, 64)
+					if commentDate >= dateFrom {
+						commenterID := comment.User.ID.String()
+						commenter, exists := userMap[commenterID]
+						if !exists {
+							commenter = comment.User
+						}
+						activities = append(activities, clickup.Activity{
+							ID:         "comment-" + comment.ID,
+							User:       commenter,
+							Type:       "commented on task",
+							Date:       comment.Date,
+							TaskID:     task.ID,
+							Source:     task.Name,
+							Detail:     comment.CommentText,
+							FolderName: task.FolderName,
+							ListName:   task.ListName,
+						})
 					}
 				}
 			}
@@ -247,29 +328,85 @@ func generateTeamStatusDisplayContent(width int, days int, summaryText string, r
 		width = 80
 	}
 
+	// Calculate ticket activity stats per user
+	type userStat struct {
+		created map[string]bool
+		updated map[string]bool
+		closed  map[string]bool
+	}
+	userStats := make(map[string]*userStat)
+
+	for _, a := range activities {
+		username := a.User.Username
+		if username == "" {
+			username = "Unknown User"
+		}
+		s, exists := userStats[username]
+		if !exists {
+			s = &userStat{
+				created: make(map[string]bool),
+				updated: make(map[string]bool),
+				closed:  make(map[string]bool),
+			}
+			userStats[username] = s
+		}
+
+		if strings.HasPrefix(a.ID, "create-") {
+			s.created[a.TaskID] = true
+		} else if strings.HasPrefix(a.ID, "done-") || strings.HasPrefix(a.ID, "closed-") {
+			s.closed[a.TaskID] = true
+		} else {
+			// update-, comment-, assign-create-
+			s.updated[a.TaskID] = true
+		}
+	}
+
+	// Sort users by name for deterministic order
+	var usernames []string
+	for name := range userStats {
+		usernames = append(usernames, name)
+	}
+	sort.Strings(usernames)
+
+	// Build the stats table in Markdown
+	var statsTableMarkdown strings.Builder
+	statsTableMarkdown.WriteString("## Ticket Activity Stats\n\n")
+	statsTableMarkdown.WriteString("| User | Created | Updated/Commented | Closed |\n")
+	statsTableMarkdown.WriteString("| :--- | :---: | :---: | :---: |\n")
+	for _, name := range usernames {
+		s := userStats[name]
+		statsTableMarkdown.WriteString(fmt.Sprintf("| %s | %d | %d | %d |\n", name, len(s.created), len(s.updated), len(s.closed)))
+	}
+	statsTableMarkdown.WriteString("\n")
+
 	var b strings.Builder
 	title := fmt.Sprintf("Team Status for the last %d days", days)
 	b.WriteString(ui.HeaderStyle.Render(title) + "\n\n")
 
-	if summaryText != "" {
-		glamourStyle := "dark"
-		if !lipgloss.HasDarkBackground() {
-			glamourStyle = "light"
-		}
-
-		r, _ := glamour.NewTermRenderer(
-			glamour.WithStandardStyle(glamourStyle),
-			glamour.WithWordWrap(width-10),
-		)
-
-		out, err := r.Render(summaryText)
-		if err != nil {
-			b.WriteString(summaryText)
-		} else {
-			b.WriteString(strings.TrimSpace(out))
-		}
-		b.WriteString("\n\n")
+	glamourStyle := "dark"
+	if !lipgloss.HasDarkBackground() {
+		glamourStyle = "light"
 	}
+
+	r, _ := glamour.NewTermRenderer(
+		glamour.WithStandardStyle(glamourStyle),
+		glamour.WithWordWrap(width-10),
+	)
+
+	// Combine stats table and summary text if summary is present
+	markdownContent := ""
+	if summaryText != "" {
+		markdownContent += summaryText + "\n\n"
+	}
+	markdownContent += statsTableMarkdown.String()
+
+	out, err := r.Render(markdownContent)
+	if err != nil {
+		b.WriteString(markdownContent)
+	} else {
+		b.WriteString(strings.TrimSpace(out))
+	}
+	b.WriteString("\n\n")
 
 	if len(activities) == 0 {
 		b.WriteString(fmt.Sprintf("No team activity found in the last %d days.", days))

@@ -89,6 +89,8 @@ type Task struct {
 	DateDone    string `json:"date_done"`    // Unix timestamp in milliseconds as string
 	DateClosed  string `json:"date_closed"`  // Unix timestamp in milliseconds as string
 	TextContent string `json:"text_content"` // Task description
+	FolderName  string `json:"folder_name,omitempty"`
+	ListName    string `json:"list_name,omitempty"`
 }
 
 func (t *Task) UnmarshalJSON(data []byte) error {
@@ -214,13 +216,15 @@ func (c *Client) doRequestWithBody(method, url string, body io.Reader, target in
 }
 
 type Activity struct {
-	ID     string `json:"id"`
-	User   User   `json:"user"`
-	Type   string `json:"type"`
-	Date   string `json:"date"` // Unix timestamp in milliseconds as string
-	TaskID string `json:"task_id"`
-	Source string `json:"source"`
-	Detail string `json:"detail,omitempty"`
+	ID         string `json:"id"`
+	User       User   `json:"user"`
+	Type       string `json:"type"`
+	Date       string `json:"date"` // Unix timestamp in milliseconds as string
+	TaskID     string `json:"task_id"`
+	Source     string `json:"source"`
+	Detail     string `json:"detail,omitempty"`
+	FolderName string `json:"folder_name,omitempty"`
+	ListName   string `json:"list_name,omitempty"`
 }
 
 type ActivityResponse struct {
